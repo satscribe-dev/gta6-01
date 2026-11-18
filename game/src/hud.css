@@ -1,817 +1,380 @@
-/* PUERTO MIRA — HUD styling. W5.
-   Sunset palette: dark glass panels, orange / pink / teal accents.
-   Big readable type for 1280x720 screenshots. Text/SVG only — no emoji icons. */
+/* hud.css — HUD, minimap + menus styling for VANDARA RUSH.
+   System fonts only, CSS variables, responsive units. Sharp at
+   1280x720 and 1920x1080. Layout (super prompt §3): minimap bottom
+   left, money/clock/wanted top right, speedo/weapon bottom right,
+   mission objective top left, dialogue subtitles bottom centre. */
 
+:root {
+  --hud-bg: rgba(10, 16, 28, 0.62);
+  --hud-bg-soft: rgba(10, 16, 28, 0.45);
+  --hud-border: rgba(255, 255, 255, 0.16);
+  --hud-text: #f4f1e8;
+  --hud-muted: #c9c4b4;
+  --hud-gold: #ffd23f;
+  --hud-money: #3ddc84;
+  --hud-health: #ff4d4d;
+  --hud-armor: #4da6ff;
+  --hud-nitro: #37e0ff;
+  --hud-accent: #ff9e64;
+  --hud-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  --hud-radius: 10px;
+}
+
+#hud, #hud *, .vr-menu, .vr-menu * { box-sizing: border-box; }
 #hud {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
+  position: fixed; inset: 0;
   pointer-events: none;
+  z-index: 20;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #fff;
+  color: var(--hud-text);
+  display: none; /* shown by VR.Menus when play starts */
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
-#hud.hidden { display: none; }
-
-#hud .hidden { display: none !important; }
-
-/* Title / pause panels live OUTSIDE #hud, so #hud .hidden does not reach
-   them — without this the HOW TO PLAY + SETTINGS panels render expanded
-   on the title screen from the first frame (W6 fix). */
-#title-screen .hidden,
-#pause-menu .hidden { display: none !important; }
-
-/* ---------- shared panel look ---------- */
-#mission-card,
-#scanner-feed .scanner-row,
-#weapon-slots .weapon-slot,
-#dialogue-card,
-#radio-bar,
-#controls-hint,
-#speedo,
-#health-armour {
-  background: rgba(16, 20, 38, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 10px;
-  backdrop-filter: blur(3px);
+#hud .panel {
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  backdrop-filter: blur(2px);
 }
 
-/* ---------- left column: minimap wrap, mission card, scanner feed ---------- */
-#top-left {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  bottom: 136px; /* stops above the dialogue card (bottom-left) */
-  width: 320px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* ---------- mission objective, top left ---------- */
+#mission-box {
+  position: absolute; top: 14px; left: 14px;
+  max-width: min(430px, 42vw);
+  padding: 10px 14px 11px;
 }
-
-/* ---------- mission card (in the left column, under the minimap) ---------- */
-#mission-card {
-  flex: none;
-  width: 320px;
-  box-sizing: border-box;
-  padding: 10px 12px 11px;
-  border-left: 4px solid #ff7a2e;
+#mission-title {
+  font-size: clamp(13px, 1.15vw, 16px);
+  font-weight: 800; letter-spacing: 1.5px;
+  color: var(--hud-gold);
+  text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#mission-card.flash { animation: cardFlash 0.6s ease-out; }
-@keyframes cardFlash {
-  0% { box-shadow: 0 0 0 0 rgba(255, 201, 60, 0.7); }
-  100% { box-shadow: 0 0 0 14px rgba(255, 201, 60, 0); }
-}
-.mc-chapter {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #ffc93c;
-}
-.mc-title {
-  font-size: 22px;
-  font-weight: 800;
-  line-height: 1.1;
-  margin: 2px 0 4px;
-}
-.mc-objective {
-  font-size: 14px;
+#mission-objective {
+  margin-top: 3px;
+  font-size: clamp(12px, 1.05vw, 15px);
   line-height: 1.35;
-  color: #f2f4ff;
+  color: var(--hud-text);
 }
-.mc-stage {
-  position: relative;
-  height: 18px;
-  margin-top: 8px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 9px;
-  overflow: hidden;
+#mission-toast {
+  position: absolute; top: 14px; left: 50%;
+  transform: translate(-50%, -8px);
+  padding: 9px 18px;
+  background: rgba(20, 60, 34, 0.85);
+  border: 1px solid rgba(61, 220, 132, 0.55);
+  border-radius: 999px;
+  color: #c8f5d8;
+  font-size: clamp(12px, 1.05vw, 15px);
+  font-weight: 700; letter-spacing: 0.5px;
+  opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none; white-space: nowrap;
+  box-shadow: var(--hud-shadow);
 }
-.mc-stage-fill {
-  height: 100%;
-  width: 50%;
-  background: linear-gradient(90deg, #ff7a2e, #ff2e63);
-  border-radius: 9px;
-  transition: width 0.4s ease;
-}
-.mc-stage-text {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-.mc-timer {
-  margin-top: 6px;
-  font-size: 20px;
-  font-weight: 800;
-  color: #7df0d4;
-  font-variant-numeric: tabular-nums;
-}
-.mc-timer.urgent { color: #ff2e4d; animation: urgentBlink 0.5s steps(2) infinite; }
-@keyframes urgentBlink { 50% { opacity: 0.45; } }
-.mc-next {
-  margin-top: 5px;
-  font-size: 11px;
-  letter-spacing: 0.4px;
-  color: #c8cede;
-}
+#mission-toast.visible { opacity: 1; transform: translate(-50%, 0); }
 
-/* ---------- top-right: money / wanted / clock ---------- */
+/* ---------- top right cluster: money / clock / wanted ---------- */
 #top-right {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  text-align: right;
+  position: absolute; top: 14px; right: 14px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
 }
 #money {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  color: #7df0d4;
-  font-variant-numeric: tabular-nums;
-  background: rgba(16, 20, 38, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 10px;
-  padding: 2px 14px 4px;
-  display: inline-block;
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 800; letter-spacing: 1px;
+  color: var(--hud-money);
+  padding: 6px 14px;
 }
-#money.gain { color: #8dff9e; }
-#money.loss { color: #ff5d73; }
+#clock-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  font-size: clamp(12px, 1.05vw, 15px);
+  font-weight: 700; letter-spacing: 1px;
+}
+#weather-icon { width: 20px; height: 20px; display: inline-flex; }
+#weather-icon svg { width: 100%; height: 100%; }
 #wanted-stars {
-  margin-top: 6px;
-  font-size: 26px;
-  letter-spacing: 4px;
+  padding: 5px 12px 7px;
+  font-size: clamp(16px, 1.6vw, 22px);
+  letter-spacing: 3px;
   line-height: 1;
 }
-#wanted-stars .star { color: rgba(255, 255, 255, 0.25); transition: color 0.2s; }
-#wanted-stars .star.lit { color: #ffc93c; }
-#wanted-stars.rising .star.lit { animation: starPulse 0.55s ease-out; }
-@keyframes starPulse {
-  0% { transform: scale(1.7); color: #ff2e4d; }
-  100% { transform: scale(1); color: #ffc93c; }
+#wanted-stars .wanted-star {
+  color: rgba(255, 255, 255, 0.22);
+  transition: color 0.2s ease, text-shadow 0.2s ease;
 }
-#clock {
-  margin-top: 6px;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #ffe9c9;
+#wanted-stars .wanted-star.active {
+  color: var(--hud-gold);
+  text-shadow: 0 0 10px rgba(255, 210, 63, 0.9), 0 0 3px rgba(255, 210, 63, 1);
 }
+#wanted-stars.hot { border-color: rgba(255, 210, 63, 0.5); }
 
-/* ---------- scanner feed (under mission card; clips oldest rows first) ---------- */
-#scanner-feed {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  width: 320px;
+/* ---------- bottom right: speedo / weapon / radio ---------- */
+#bottom-right {
+  position: absolute; right: 16px; bottom: 16px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
 }
-.scanner-row {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  padding: 5px 9px;
-  margin-bottom: 4px;
-  color: #cfe8ff;
-  border-left: 3px solid #2ec4ff;
-  animation: scannerIn 0.25s ease-out;
-}
-@keyframes scannerIn {
-  from { opacity: 0; transform: translateX(-8px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-.scanner-row.hot { color: #ffd2d8; border-left-color: #ff2e4d; background: rgba(80, 16, 30, 0.75); }
-.scanner-row.warm { color: #ffe9c9; border-left-color: #ffc93c; }
-.scanner-row.standby { color: #9aa3b2; border-left-color: #6b7280; }
-
-/* ---------- weapon slots (right edge, mid) ----------
-   v3: icon tiles, not text rows — a drawn weapon silhouette with the ammo
-   count under it; the weapon name shows under the ACTIVE tile only. The
-   5th tile is a locked padlock, dark. Gap leaves room for the active
-   name so the column never shifts when the selection changes. */
-#weapon-slots {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.weapon-slot {
-  position: relative;
-  width: 66px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 7px 4px 6px;
-  opacity: 0.55;
-}
-.weapon-slot.active {
-  opacity: 1;
-  border-left: 4px solid #ff7a2e;
-  background: rgba(255, 122, 46, 0.22);
-}
-.weapon-slot.locked { opacity: 0.38; }
-.ws-key {
-  position: absolute;
-  top: -6px;
-  left: -6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 4px;
-  background: rgba(16, 20, 38, 0.92);
-  font-size: 10px;
-  font-weight: 800;
-}
-.ws-icon {
-  width: 42px;
-  height: 26px;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.ws-icon svg { width: 100%; height: 100%; display: block; }
-.weapon-slot.locked .ws-icon { width: 20px; height: 24px; color: #9aa3b2; }
-.ws-ammo {
-  font-size: 12px;
-  font-weight: 800;
-  color: #ffc93c;
-  font-variant-numeric: tabular-nums;
-}
-.ws-ammo.lock-label { font-size: 9px; letter-spacing: 1px; color: #9aa3b2; }
-.ws-name {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: -6px;
-  right: -6px;
-  display: none;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  color: #ffc93c;
-  white-space: nowrap;
-}
-.weapon-slot.active .ws-name { display: block; }
-
-/* ---------- minimap wrap (top of the left column) ----------
-   v3: full GTA-style CIRCLE. The wrapper is no longer a panel — the circle
-   itself is the panel: a 200px disc with a thick gold ring. The header is a
-   small pill floating above the circle (PUERTO MIRA + district) and the "N"
-   compass rides the ring's top edge. The respect bar is its own pill under
-   the circle. Nothing square may show. */
-#minimap-wrap {
-  flex: none;
-  width: 220px;
-  box-sizing: border-box;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  backdrop-filter: none;
-  overflow: visible;
-}
-#minimap-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: max-content;
-  max-width: 220px;
-  margin: 0 auto 12px;
-  padding: 4px 11px;
-  background: rgba(16, 20, 38, 0.78);
-  border: 1px solid rgba(255, 201, 60, 0.55);
+#radio-capsule {
+  padding: 6px 14px;
   border-radius: 999px;
-  backdrop-filter: blur(3px);
+  font-size: clamp(11px, 0.95vw, 13px);
+  font-weight: 700; letter-spacing: 0.8px;
+  color: #bfefff;
+  background: rgba(14, 40, 56, 0.66);
+  border: 1px solid rgba(55, 224, 255, 0.35);
 }
-.mm-title {
-  flex: none;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  color: #ffc93c;
-}
-#minimap-header #district {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+#speedo {
+  display: flex; align-items: flex-end; gap: 12px;
+  padding: 10px 16px 12px;
   text-align: right;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: #ffe9c9;
 }
-.mm-compass {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid #ffc93c;
-  background: rgba(16, 20, 38, 0.92);
-  color: #ffc93c;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 800;
-}
-/* The compass rides the top edge of the circle once hud.js moves it into
-   .mm-circle (it starts life inside #minimap-header). */
-.mm-circle {
-  position: relative;
-  width: 206px;
-  height: 206px;
-  margin: 0 auto;
-}
-.mm-circle .mm-compass {
-  position: absolute;
-  top: -9px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
-}
-#minimap {
-  display: block;
-  width: 200px;
-  height: 200px;
-  margin: 0 auto;
-  border-radius: 50%;
-  border: 3px solid #ffc93c;
-  box-shadow:
-    0 0 0 2px rgba(16, 20, 38, 0.9),
-    0 0 18px rgba(255, 201, 60, 0.35),
-    0 6px 22px rgba(0, 0, 0, 0.5);
-  background: #232a3d;
-}
-/* Respect bar: its own pill under the circle (the wrap is transparent now). */
-#respect-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 200px;
-  margin: 10px auto 0;
-  padding: 5px 10px;
-  box-sizing: border-box;
-  background: rgba(16, 20, 38, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  backdrop-filter: blur(3px);
-}
-.respect-label {
-  flex: none;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  color: #c8a0ff;
-  white-space: nowrap;
-}
-.respect-track {
-  flex: 1;
-  height: 8px;
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.respect-fill {
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, #9a6bff, #ff2e63);
-  border-radius: 4px;
-  transition: width 0.3s ease;
-}
-
-/* ---------- dialogue card (bottom-left, now that the minimap moved up) ---------- */
-#dialogue-card {
-  position: absolute;
-  left: 14px;
-  bottom: 14px;
-  width: 400px;
-  min-height: 84px;
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  border-left: 4px solid #2ec4ff;
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-#dialogue-card.visible { opacity: 1; }
-.dlg-portrait {
-  flex: 0 0 56px;
-  width: 56px;
-  height: 56px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  font-weight: 800;
+#speed-value {
+  font-size: clamp(38px, 4vw, 56px);
+  font-weight: 800; line-height: 0.9; font-variant-numeric: tabular-nums;
   color: #fff;
+}
+#speed-unit { font-size: 12px; letter-spacing: 2px; color: var(--hud-muted); }
+#gear {
+  font-size: clamp(18px, 1.7vw, 24px); font-weight: 800;
+  color: var(--hud-gold);
+  border: 1px solid rgba(255, 210, 63, 0.55);
+  border-radius: 6px; padding: 2px 9px;
+}
+#speedo-bars { display: flex; flex-direction: column; gap: 6px; width: 150px; }
+.bar-label {
+  display: flex; justify-content: space-between;
+  font-size: 10px; font-weight: 700; letter-spacing: 2px;
+  color: var(--hud-muted);
+}
+.bar-track {
+  height: 8px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
-.dlg-portrait svg { width: 100%; height: 100%; display: block; }
-.dlg-body { flex: 1; min-width: 0; }
-.dlg-head { display: flex; align-items: baseline; gap: 8px; }
-.dlg-name { font-size: 15px; font-weight: 800; }
-.dlg-role {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #7df0d4;
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.12s linear; }
+#nitro-bar { background: linear-gradient(90deg, #1fb6d6, var(--hud-nitro)); width: 100%; }
+#nitro-bar.low { background: linear-gradient(90deg, #b33, #ff6b6b); }
+#condition-bar { background: linear-gradient(90deg, #2fae5f, var(--hud-money)); width: 100%; }
+#condition-bar.low { background: linear-gradient(90deg, #b33, #ff6b6b); }
+
+#weapon-slot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  min-width: 170px;
+}
+#weapon-icon { width: 56px; height: 36px; display: flex; align-items: center; }
+#weapon-icon svg { width: 100%; height: 100%; }
+#weapon-meta { display: flex; flex-direction: column; line-height: 1.15; }
+#weapon-name {
+  font-size: clamp(12px, 1.05vw, 14px); font-weight: 800; letter-spacing: 1px;
   text-transform: uppercase;
 }
-.dlg-text { margin-top: 3px; font-size: 14px; line-height: 1.4; color: #f2f4ff; }
-.dlg-text::after {
-  content: "▍";
-  color: #ffc93c;
-  animation: caretBlink 0.7s steps(2) infinite;
-}
-@keyframes caretBlink { 50% { opacity: 0; } }
-
-/* ---------- bottom-right: speedo / health ---------- */
-#bottom-right {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  text-align: right;
-}
-/* Active weapon tile (v3): the current weapon's silhouette + name, riding
-   above the speedometer in the bottom-right cluster. Same drawn icons as
-   the slot column; own line, right-aligned. */
-#active-weapon {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: max-content;
-  margin: 0 0 8px auto;
-  padding: 8px 12px;
-  background: rgba(16, 20, 38, 0.72);
-  border: 1px solid rgba(255, 201, 60, 0.55);
-  border-radius: 10px;
-  backdrop-filter: blur(3px);
-}
-#active-weapon .aw-icon {
-  width: 42px;
-  height: 26px;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-#active-weapon .aw-icon svg { width: 100%; height: 100%; display: block; }
-#active-weapon .aw-name {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 1.5px;
-  color: #ffc93c;
-}
-#speedo { padding: 10px 14px; display: inline-block; text-align: right; }
-.sp-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; }
-.sp-speed {
-  font-size: 52px;
-  font-weight: 800;
-  line-height: 0.9;
-  font-variant-numeric: tabular-nums;
-}
-.sp-unit { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #ffc93c; }
-.sp-gear { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: #c8cede; margin-top: 2px; }
-.sp-car { font-size: 16px; font-weight: 800; color: #ffe9c9; }
-.sp-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-.sp-bar-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #c8cede; }
-.sp-bar-track {
-  flex: 1;
-  min-width: 120px;
-  height: 8px;
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.sp-bar-fill { height: 100%; border-radius: 4px; transition: width 0.15s linear; }
-.sp-bar-fill.nitro { background: linear-gradient(90deg, #2ec4ff, #7df0d4); }
-.sp-bar-fill.cond { background: linear-gradient(90deg, #ff7a2e, #ffc93c); }
-.sp-bar-fill.cond.low { background: #ff2e4d; }
-#health-armour { padding: 10px 14px; width: 230px; box-sizing: border-box; }
-.ha-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-.ha-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; width: 92px; text-align: left; }
-.ha-track { flex: 1; height: 10px; background: rgba(255, 255, 255, 0.14); border-radius: 5px; overflow: hidden; }
-.ha-fill { height: 100%; border-radius: 5px; transition: width 0.2s ease; }
-.ha-fill.hp { background: linear-gradient(90deg, #ff2e63, #ff7a2e); }
-.ha-fill.hp.low { background: #ff2e4d; }
-.ha-fill.ar { background: linear-gradient(90deg, #2ec4ff, #7df0d4); }
-
-/* ---------- radio bar (top centre) ---------- */
-#radio-bar {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 700;
-}
-.rb-station { color: #ff9a5c; letter-spacing: 1px; }
-.rb-track { color: #f2f4ff; font-weight: 600; }
-.rb-hint { font-size: 10px; letter-spacing: 1px; color: #9aa3b2; }
-/* Equaliser bars (v3): tiny animated bars at the end of the radio bar. */
-.rb-eq {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 14px;
-}
-.rb-eq i {
-  display: block;
-  width: 3px;
-  background: #7df0d4;
-  border-radius: 1px;
-  transform-origin: bottom;
-  animation: eqBounce 0.9s ease-in-out infinite;
-}
-.rb-eq i:nth-child(1) { height: 6px; animation-delay: 0s; }
-.rb-eq i:nth-child(2) { height: 12px; animation-delay: 0.15s; }
-.rb-eq i:nth-child(3) { height: 8px; animation-delay: 0.3s; }
-.rb-eq i:nth-child(4) { height: 13px; animation-delay: 0.45s; }
-@keyframes eqBounce {
-  0%, 100% { transform: scaleY(0.45); }
-  50% { transform: scaleY(1); }
+#weapon-ammo {
+  font-size: clamp(14px, 1.3vw, 18px); font-weight: 700;
+  color: var(--hud-gold); font-variant-numeric: tabular-nums;
 }
 
-/* ---------- combo popups (centre) ---------- */
-#combo-popup {
-  position: absolute;
-  left: 50%;
-  top: 34%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-.combo-pop {
-  text-align: center;
-  opacity: 0;
-  transform: scale(0.7);
-}
-.combo-pop.show { animation: comboPop 1.6s ease-out forwards; }
-@keyframes comboPop {
-  0% { opacity: 0; transform: scale(0.7) translateY(10px); }
-  15% { opacity: 1; transform: scale(1.12) translateY(0); }
-  30% { transform: scale(1); }
-  75% { opacity: 1; }
-  100% { opacity: 0; transform: scale(1) translateY(-24px); }
-}
-.combo-title {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  color: #ffc93c;
-}
-.combo-sub { font-size: 20px; font-weight: 800; color: #8dff9e; }
-.combo-pop.objective .combo-title { color: #7df0d4; font-size: 26px; }
-.combo-pop.objective .combo-sub { color: #f2f4ff; font-size: 15px; font-weight: 600; }
-
-/* ---------- damage vignette ---------- */
-#damage-vignette {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  box-shadow: inset 0 0 140px 40px rgba(255, 0, 60, 0.55);
-}
-#damage-vignette.flash { animation: dmgFlash 0.55s ease-out; }
-@keyframes dmgFlash {
-  0% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-/* ---------- controls hint ---------- */
 #controls-hint {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 5px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
-  color: #c8cede;
-  white-space: nowrap;
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 0.6px; color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none; white-space: nowrap;
 }
 
-/* ---------- title screen ---------- */
-#title-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/* ---------- crosshair (centre, only while aiming) ---------- */
+#crosshair {
+  position: absolute; left: 50%; top: 50%;
+  width: 26px; height: 26px;
+  transform: translate(-50%, -50%);
+  opacity: 0; transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+#crosshair.visible { opacity: 1; }
+#crosshair::before, #crosshair::after {
+  content: ""; position: absolute; background: #fff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+}
+#crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+#crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+#crosshair .dot {
+  position: absolute; left: 50%; top: 50%;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: #fff; transform: translate(-50%, -50%);
+}
+
+/* ---------- dialogue subtitles, bottom centre ---------- */
+#dialogue-box {
+  position: absolute; left: 50%; bottom: 108px;
+  transform: translate(-50%, 10px);
+  width: min(620px, 66vw);
+  display: flex; gap: 14px; align-items: flex-start;
+  padding: 14px 16px;
+  opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: auto; cursor: pointer;
+}
+#dialogue-box.visible { opacity: 1; transform: translate(-50%, 0); }
+#dialogue-portrait {
+  flex: 0 0 64px; width: 64px; height: 64px;
+  border-radius: 8px; overflow: hidden;
+  border: 2px solid rgba(255, 210, 63, 0.6);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+#dialogue-portrait svg { width: 100%; height: 100%; display: block; }
+#dialogue-body { flex: 1; min-width: 0; }
+#dialogue-name {
+  font-size: clamp(13px, 1.15vw, 16px); font-weight: 800; letter-spacing: 1px;
+  color: var(--hud-gold); text-transform: uppercase;
+}
+#dialogue-role {
+  font-size: 11px; letter-spacing: 1px; color: var(--hud-muted);
+  margin-left: 8px; text-transform: uppercase;
+}
+#dialogue-text {
+  margin-top: 4px;
+  font-size: clamp(14px, 1.25vw, 17px); line-height: 1.45;
   color: #fff;
-  background: linear-gradient(180deg, rgba(10, 14, 32, 0.25) 0%, rgba(10, 14, 32, 0.55) 55%, rgba(30, 10, 40, 0.78) 100%);
 }
-#title-screen.hidden { display: none; }
-.title-inner {
-  text-align: center;
-  max-width: 860px;
-  padding: 20px;
+
+.hidden { display: none !important; }
+
+/* ---------- minimap (bottom left) ---------- */
+#minimap-wrap {
+  position: absolute; left: 16px; bottom: 16px;
+  display: flex; align-items: flex-end; gap: 10px;
+  z-index: 21;
 }
-.title-logo {
-  font-size: 84px;
-  font-weight: 800;
-  letter-spacing: 6px;
-  line-height: 0.95;
-  text-shadow: 0 4px 0 rgba(255, 46, 99, 0.55), 0 10px 34px rgba(0, 0, 0, 0.6);
-  animation: logoGlow 3s ease-in-out infinite;
-}
-.title-logo span {
+#minimap-frame { position: relative; width: 190px; height: 190px; }
+#minimap-canvas {
+  width: 190px; height: 190px;
+  border-radius: 50%;
   display: block;
-  color: #ffc93c;
-  letter-spacing: 14px;
-  text-shadow: 0 4px 0 rgba(255, 122, 46, 0.55), 0 10px 34px rgba(0, 0, 0, 0.6);
+  border: 3px solid rgba(255, 233, 201, 0.85);
+  outline: 2px solid rgba(10, 16, 28, 0.55);
+  box-shadow: 0 4px 22px rgba(0, 0, 0, 0.6), inset 0 0 30px rgba(0, 0, 0, 0.35);
+  background: #123a4a;
 }
-@keyframes logoGlow {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.18); }
+#district-label {
+  position: absolute; left: 50%; top: -30px; transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: clamp(12px, 1.05vw, 14px); font-weight: 800; letter-spacing: 2px;
+  color: #ffe9c9; text-transform: uppercase;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  opacity: 0; transition: opacity 0.4s ease;
+  pointer-events: none;
 }
-.title-tag {
-  margin-top: 10px;
-  font-size: 18px;
-  font-weight: 600;
+#district-label.visible { opacity: 1; }
+#vitals {
+  display: flex; flex-direction: column; gap: 7px;
+  width: 96px; padding-bottom: 6px;
+}
+#vitals .bar-label { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+#health-fill { background: linear-gradient(90deg, #c22, var(--hud-health)); width: 100%; }
+#armor-fill { background: linear-gradient(90deg, #2b6cb0, var(--hud-armor)); width: 100%; }
+
+/* ---------- menus: title / pause / settings / controls ---------- */
+.vr-menu {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--hud-text);
+}
+#title-screen {
+  background: linear-gradient(180deg, rgba(8, 12, 24, 0.12) 0%, rgba(8, 12, 24, 0.55) 78%, rgba(8, 12, 24, 0.82) 100%);
+  pointer-events: auto;
+}
+#title-screen .vr-logo { text-align: center; margin-bottom: 26px; }
+#title-screen .vr-logo h1 {
+  margin: 0; font-size: clamp(44px, 6vw, 84px); font-weight: 900;
+  letter-spacing: 10px; line-height: 1;
   color: #ffe9c9;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 3px 0 #b3541e, 0 8px 28px rgba(0, 0, 0, 0.8);
 }
-.title-save {
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #7df0d4;
+#title-screen .vr-logo h1 .rush { color: var(--hud-gold); }
+#title-screen .vr-logo p {
+  margin: 10px 0 0; font-size: clamp(12px, 1.2vw, 16px);
+  letter-spacing: 6px; color: #ffd27a; font-weight: 700;
 }
-.title-buttons {
-  margin-top: 18px;
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  flex-wrap: wrap;
+#title-screen .click-start {
+  margin-top: 22px; font-size: clamp(13px, 1.2vw, 16px);
+  letter-spacing: 3px; font-weight: 700; color: #fff; cursor: pointer;
+  animation: vr-pulse 1.6s ease-in-out infinite;
 }
-.menu-btn {
-  pointer-events: auto;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 1.5px;
-  color: #fff;
-  background: rgba(16, 20, 38, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 10px;
-  padding: 12px 22px;
+@keyframes vr-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.vr-btn-col { display: flex; flex-direction: column; gap: 10px; width: min(320px, 80vw); }
+.vr-btn {
+  padding: 12px 18px; font-size: 15px; font-weight: 800; letter-spacing: 2px;
+  color: var(--hud-text); background: rgba(10, 16, 28, 0.72);
+  border: 1px solid var(--hud-border); border-radius: 8px;
+  cursor: pointer; text-align: center;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
-.menu-btn:hover { background: rgba(255, 122, 46, 0.85); border-color: #ffc93c; }
-.menu-btn.primary { background: linear-gradient(90deg, #ff7a2e, #ff2e63); border-color: #ffc93c; }
-.menu-btn.primary:hover { filter: brightness(1.15); }
-.menu-btn:disabled { opacity: 0.4; cursor: default; }
-.menu-btn:disabled:hover { background: rgba(16, 20, 38, 0.8); border-color: rgba(255, 255, 255, 0.35); }
-.menu-btn.small { font-size: 12px; padding: 9px 16px; }
-.title-chars {
-  margin-top: 22px;
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-.char-card {
-  width: 128px;
-  padding: 10px 8px;
-  background: rgba(16, 20, 38, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 10px;
-}
-.char-card.villain { border-color: rgba(255, 46, 77, 0.55); }
-.char-face {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 6px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  font-weight: 800;
-}
-.char-name { font-size: 13px; font-weight: 800; }
-.char-role { font-size: 11px; color: #c8cede; }
-.title-how,
-.title-settings,
-.pause-how {
-  margin-top: 16px;
-  padding: 12px 16px;
-  background: rgba(16, 20, 38, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
-  text-align: left;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.how-title { font-size: 14px; font-weight: 800; letter-spacing: 2px; color: #ffc93c; margin-bottom: 4px; }
-.title-settings { display: flex; gap: 10px; justify-content: center; }
+.vr-btn:hover { background: rgba(255, 158, 100, 0.28); border-color: var(--hud-accent); transform: translateY(-1px); }
+.vr-btn.primary { background: rgba(255, 158, 100, 0.85); color: #1a1208; border-color: #ffd27a; }
+.vr-btn.primary:hover { background: #ff9e64; }
+.vr-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.vr-btn.small { font-size: 12px; padding: 8px 12px; }
+.vr-version { margin-top: 26px; font-size: 11px; letter-spacing: 2px; color: rgba(255, 255, 255, 0.55); }
 
-/* ---------- pause menu ---------- */
-#pause-menu {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #fff;
-  background: rgba(10, 14, 32, 0.6);
+.vr-panel {
+  background: rgba(8, 13, 25, 0.92);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  padding: 22px 26px; width: min(680px, 92vw);
+  max-height: 88vh; overflow-y: auto;
 }
-#pause-menu.hidden { display: none; }
-.pause-inner {
-  text-align: center;
-  background: rgba(16, 20, 38, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 14px;
-  padding: 26px 34px;
-  min-width: 340px;
+.vr-panel h2 {
+  margin: 0 0 4px; font-size: 22px; letter-spacing: 3px; color: var(--hud-gold);
+  text-transform: uppercase;
 }
-.pause-title {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: 6px;
-  margin-bottom: 14px;
+.vr-panel .sub { margin: 0 0 16px; font-size: 13px; color: var(--hud-muted); }
+.vr-panel label.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 10px 0; font-size: 14px; font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.pause-inner .menu-btn { display: block; width: 100%; margin-bottom: 8px; }
-.pause-note { margin-top: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #7df0d4; min-height: 16px; }
-.pause-how { text-align: left; }
+.vr-panel label.row input[type="range"] { width: 180px; accent-color: var(--hud-accent); }
+.vr-panel .row-val { min-width: 44px; text-align: right; color: var(--hud-gold); font-weight: 800; }
+.vr-controls-list { font-size: 14px; line-height: 2; }
+.vr-controls-list b {
+  display: inline-block; min-width: 130px; color: var(--hud-gold);
+  font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 13px;
+}
+.vr-panel .btn-row { display: flex; gap: 10px; margin-top: 18px; }
+.vr-panel .btn-row .vr-btn { flex: 1; }
 
-/* ---------- busted / wasted overlay ---------- */
-#end-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 25;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* ---------- pause screen: full map + legend + stats ---------- */
+#pause-screen {
+  background: rgba(6, 10, 20, 0.78);
   pointer-events: auto;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #fff;
-  background: rgba(40, 4, 12, 0.72);
+  flex-direction: row; gap: 22px; align-items: flex-start; justify-content: center;
+  padding: 30px;
+  overflow-y: auto;
 }
-#end-overlay.hidden { display: none; }
-.end-inner { text-align: center; }
-.end-title {
-  font-size: 72px;
-  font-weight: 800;
-  letter-spacing: 10px;
-  color: #ff2e4d;
-  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.7);
+#pause-map-wrap { text-align: center; }
+#pause-map-wrap h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: 4px; color: var(--hud-gold); }
+#pause-map-canvas {
+  width: min(560px, 62vw); height: auto; aspect-ratio: 1 / 1;
+  border: 2px solid rgba(255, 233, 201, 0.7); border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.65);
+  background: #123a4a; display: block;
 }
-.end-text { margin: 10px 0 20px; font-size: 16px; color: #ffe9c9; }
+#pause-side { width: min(300px, 86vw); display: flex; flex-direction: column; gap: 16px; }
+#pause-side .vr-panel { width: auto; padding: 16px 20px; }
+#pause-side h3 { margin: 0 0 8px; font-size: 14px; letter-spacing: 2px; color: var(--hud-gold); text-transform: uppercase; }
+#pause-stats { font-size: 14px; line-height: 1.9; }
+#pause-stats b { color: var(--hud-gold); }
+#pause-legend { font-size: 13px; line-height: 2; list-style: none; margin: 0; padding: 0; }
+#pause-legend li { display: flex; align-items: center; gap: 9px; }
+#pause-legend .swatch {
+  width: 14px; height: 14px; border-radius: 50%; flex: 0 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+#pause-legend .swatch.diamond { border-radius: 2px; transform: rotate(45deg); width: 12px; height: 12px; }
 
-/* ---------- big map overlay (M) ---------- */
-#map-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  pointer-events: auto;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #fff;
-  background: rgba(10, 14, 32, 0.82);
+@media (max-width: 900px) {
+  #pause-screen { flex-direction: column; align-items: center; }
+  #minimap-frame, #minimap-canvas { width: 140px; height: 140px; }
+  #vitals { width: 76px; }
+  #dialogue-box { bottom: 170px; width: 88vw; }
+  #speedo-bars { width: 110px; }
+  #mission-box { max-width: 58vw; }
 }
-#map-overlay.hidden { display: none; }
-.map-title { font-size: 20px; font-weight: 800; letter-spacing: 3px; }
-#map-overlay canvas {
-  width: 480px;
-  height: 480px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-radius: 14px;
-  background: #232a3d;
-}
-.map-legend { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #c8cede; }

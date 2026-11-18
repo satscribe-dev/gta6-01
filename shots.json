@@ -1,1 +1,1 @@
-[{"name":"1-cover.jpg","query":"?shot=chase&seed=1"},{"name":"2-title.jpg","query":"?shot=title&seed=1"},{"name":"3-foot.jpg","query":"?shot=foot&seed=1"},{"name":"4-roam.jpg","query":"?shot=roam&seed=1"}]
+[{"name":"01-cover.jpg","query":"?shot=cover"},{"name":"02-night-pursuit.jpg","query":"?shot=night"},{"name":"03-onfoot-combat.jpg","query":"?shot=combat"},{"name":"04-world-map.jpg","query":"?shot=map"}]

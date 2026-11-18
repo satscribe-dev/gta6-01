@@ -1,497 +1,366 @@
-// PUERTO MIRA — missions (W5). Story missions, 6 chapters from config MISSIONS.
-// Markers, enemy crews, the traitor chase, timers, fail/retry, rewards.
-// Player shooting at mission enemies is handled by player.js: this module
-// exposes the live enemy figures as game.enemies ({ group, health, alive })
-// and player.js raycasts + damages them; a kill there (alive=false) is picked
-// up by updateEnemies below, which counts it and removes the corpse.
-import * as THREE from 'three';
-import { MISSIONS, CHARACTERS } from './config.js';
-import { setWanted as policeSetWanted } from './police.js';
-import { spawnCar } from './vehicles.js';
+// missions.js — Slice E: 8 story missions for VANDARA RUSH.
+// Sequential objectives, gold light-pillar beacon at the active target,
+// full-sentence character dialogue (via VR.HUD when present), money +
+// respect rewards, finale timer for mission 8. Every cross-module call
+// is guarded: HUD / Minimap / Police / Combat / Economy / Save may not
+// exist yet (slices C/D load in parallel).
+(function (VR) {
+  'use strict';
 
-const MARKER_RADIUS = 6;
-const ENEMY_HEALTH = 50;
-const ENEMY_SHOOT_RANGE = 25;
-const ENEMY_SHOOT_INTERVAL = 1.2;
-const ENEMY_HIT_CHANCE = 0.55;
-const ENEMY_DAMAGE = 5;
-const ENEMY_WALK_SPEED = 2.2;
-const CHASE_CATCH_DIST = 10;
-const CHASE_SPEED = 14;
-const CHASE_LOOP = [[150, 120], [210, 120], [210, 180], [150, 180]];
-const ENEMY_OFFSETS = [[12, 4], [-10, 8], [6, -12], [-12, -6], [16, -4], [-4, 14]];
+  var MISSIONS = (VR.Config && VR.Config.MISSIONS) || [];
 
-// Who briefs each mission (chapter order).
-const BRIEFING_SPEAKER = ['mira', 'lena', 'theo', 'lena', 'mira', 'lena'];
-// Lines spoken when a later stage begins ("mission:stage" -> speaker + line).
-const STAGE_LINES = {
-  '0:1': { who: 'mira', text: "That's my Zephyr. Bring her to the garage in Palm Court — in one piece." },
-  '1:1': { who: 'lena', text: "Clock's running, Kai. Three minutes to the Docks — don't stop for anyone." },
-  '2:1': { who: 'theo', text: 'One star left. Stay out of sight a little longer and the heat dies.' },
-  '3:1': { who: 'lena', text: "Six of Voss's crew inside. Make it count." },
-  '3:2': { who: 'theo', text: 'SBPD heard the noise. Go dark until it blows over.' },
-  '4:1': { who: 'mira', text: 'Cash is yours. But the heli is up — lose them before the window closes.' },
-  '4:2': { who: 'mira', text: "Clean. Bring the money home to Palm Court." },
-  '5:1': { who: 'lena', text: "It's a trap — Voss crew, everywhere! Survive it, Kai!" },
-  '5:2': { who: 'voss', text: 'So the wheelman finally shows. My crew will bury you, Mercer.' },
-  '5:3': { who: 'theo', text: 'The whole compound is coming at you — hold the line, Kai!' },
-  '5:4': { who: 'lena', text: 'The siege is broken — now run. The pier at Marina Verde. Go!' },
-};
-const COMPLETE_LINES = [
-  "She's perfect. Welcome to Puerto Mira, Kai.",
-  "Package delivered, no heat. You're a professional after all.",
-  "Heat's gone. You're a ghost, Kai. A fast ghost.",
-  'The club is quiet. Voss will feel that one.',
-  "Money's home. That heli never stood a chance.",
-  'It is over, Kai. Puerto Mira is yours.',
-];
+  // ---- Objective chains (2-4 per mission). Coordinates are road-grid
+  // points (streets at -210..210 step 60; boardwalk x = -228).
+  // Garage Soraya: (-30, 150). Golden Pier: x -240..-150.
+  // Pasar Lentera: z 90..240. Highrise Plaza: centre-north.
+  // Dockyard: x 150..240.
+  var CHAINS = [
+    [ // 1 First Delivery
+      { text: 'Pick up the package at Soraya\'s garage', x: -30, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'The package is on the garage table, dear. Brown wrapping, don\'t open it. Deliver it to Pasar Lentera before the lanterns light up.' },
+      { text: 'Deliver the package to Pasar Lentera', x: -90, z: 210,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'The recipient is waiting by the lantern stall at the far end. Hand over the package, don\'t say much, then come back here.' },
+      { text: 'Return to Soraya\'s garage', x: -30, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'Good, Damian. Your money is ready. This city needs a driver it can trust, and you just proved you are one.' }
+    ],
+    [ // 2 Lantern Chase
+      { text: 'Chase the courier through the Pasar Lentera alley', x: -150, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'Halim\'s men are chasing our courier through the market alley. Go after him, Damian, and bring the goods back. Don\'t let them slip away past the lanterns.' },
+      { text: 'Cut off the courier at the far end of the market', x: -30, z: 210,
+        who: 'Damian Reyes', role: 'Driver',
+        line: 'He turned toward the fish stalls. If I cut through the next alley, I can head him off before he reaches the main road.' },
+      { text: 'Take the goods back', x: 30, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'You got him, dear. Take the goods and bring them home. Halim\'s men won\'t stop here, so don\'t linger.' }
+    ],
+    [ // 3 Dockyard Heist
+      { text: 'Enter the Dockyard through the east gate', x: 210, z: -90,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'The blue container at the Dockyard holds port documents that could bring Halim down. Slip in quietly, and don\'t let the cranes stop moving.' },
+      { text: 'Take the documents from the blue container', x: 210, z: 30,
+        who: 'Damian Reyes', role: 'Driver',
+        line: 'Blue container, second row. The documents must be inside that wooden crate. Grab them fast, before the patrol guard comes back this way.' },
+      { text: 'Leave the Dockyard unseen', x: 150, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'The documents are in your hands. Now leave through the south side, nice and slow. One wrong step and the whole port will be after you.' }
+    ],
+    [ // 4 Soraya's Escort
+      { text: 'Pick up Soraya at the garage', x: -30, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'Tonight I have to meet someone at Golden Pier, and Bramantyo has already caught wind of it. Pick me up at the garage, Damian, and don\'t be late.' },
+      { text: 'Escort Soraya to Highrise Plaza', x: 90, z: -90,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'We have to pass through Highrise first to make sure nobody is following. Stay close to me, dear. Tonight I can\'t be alone.' },
+      { text: 'Arrive at the Golden Pier boardwalk', x: -210, z: 90,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'We made it, Damian. You looked after me well tonight. Remember, whatever you hear at this meeting, keep it to yourself.' }
+    ],
+    [ // 5 Apex Repo
+      { text: 'Enter the Highrise Plaza garage', x: 90, z: -150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'That Apex GT is yours, Damian. Halim seized it and stashed it in a Highrise Plaza garage. Slip in through the back door, the guards are changing shift.' },
+      { text: 'Take back the Apex GT', x: 150, z: -150,
+        who: 'Damian Reyes', role: 'Driver',
+        line: 'There it is. My teal paint, my spoiler, my car. Halim thought he could keep my car forever. He was very wrong.' },
+      { text: 'Bring the Apex GT to Soraya\'s garage', x: -30, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'You did it, dear. Bring your car home to the garage and let me look it over. From now on, nobody touches the Apex GT again.' }
+    ],
+    [ // 6 Vault at Golden Pier
+      { text: 'Meet Halim\'s contact at Golden Pier', x: -210, z: -90,
+        who: 'Victor Halim', role: 'Syndicate Boss',
+        line: 'Reyes. You\'ve done good work so far. My contact is waiting at the end of the Golden Pier boulevard. He will show you the way to the vault.' },
+      { text: 'Open the vault under the dock', x: -228, z: -150,
+        who: 'Victor Halim', role: 'Syndicate Boss',
+        line: 'The small vault under the Golden Pier dock holds my money. Open it, take your cut, and don\'t think about running. I always know.' },
+      { text: 'Take the money to the drop-off point', x: -150, z: -30,
+        who: 'Victor Halim', role: 'Syndicate Boss',
+        line: 'Good. Now take that money to the drop-off at the end of the boulevard. Hand it to my man, and your cut will be paid in cash. Don\'t be late.' }
+    ],
+    [ // 7 Double Cross
+      { text: 'Escape the ambush at Golden Pier', x: -210, z: 30,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'Halim set you up, Damian. The vault was bait, and Bramantyo is already waiting outside. Run now, dear. Don\'t trust anyone tonight, except me.' },
+      { text: 'Break through the blockade at Highrise Plaza', x: 30, z: -30,
+        who: 'Inspektur Bramantyo', role: 'Police Commander',
+        line: 'Reyes! You\'re surrounded. Surrender now, or I\'ll drag you out of that car myself. This city is mine, not yours.' },
+      { text: 'Reach Soraya\'s garage', x: -30, z: 150,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'You made it, thank goodness. Shut the garage door, Damian. Bramantyo won\'t dare come in here, but we have to plan tonight\'s last move.' }
+    ],
+    [ // 8 Last Hydrofoil Out
+      { text: 'Get the hydrofoil keys at the Dockyard', x: 210, z: 90,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'This is the last one, Damian. My man at the Dockyard has the hydrofoil keys. Grab them, and don\'t stop for anything. We don\'t have much time left.' },
+      { text: 'Break through to Golden Pier', x: -150, z: 90,
+        who: 'Inspektur Bramantyo', role: 'Police Commander',
+        line: 'All units, close every road to Golden Pier! Reyes must not reach the dock. I want him alive, but I won\'t wait forever.' },
+      { text: 'Board the hydrofoil at the dock before midnight', x: -228, z: -210,
+        who: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        line: 'The hydrofoil is waiting at the dock before midnight. Bramantyo has closed every road and Halim has sent all his men. Run, and never look back.' }
+    ]
+  ];
 
-let game = null;
-let elapsed = 0;
-let marker = null; // { group, pillar, ring }
-let enemies = []; // { group, health, alive, shootT, flashT, dead, removeAt }
-let chaseCar = null;
-let chaseWp = 0;
-let timerLeft = null;
-let killTotal = 0;
-let killCount = 0;
-let ePrev = false;
+  var ARRIVE_RADIUS = 7;
+  var FINALE_SECONDS = 300; // 5 minutes for mission 8 (midnight)
 
-function say(whoKey, text) {
-  const c = CHARACTERS[whoKey] || CHARACTERS.kai;
-  game.events.emit('dialogue', { who: c.name, role: c.role, text });
-}
+  var active = false;
+  var current = 0;
+  var objectiveIndex = 0;
+  var objectiveText = '';
+  var targetPos = null; // reused {x, z} object, read by the minimap
+  var _target = { x: 0, z: 0 };
+  var timeLeft = 0; // seconds left in the finale (mission 8 only)
+  var _pulseT = 0;
+  var _beacon = null; // gold light-pillar mesh (CylinderGeometry, additive)
 
-function playerPos() {
-  if (game.currentCar && game.currentCar.pos) return game.currentCar.pos;
-  return game.player.pos;
-}
-
-function distTo(x, z) {
-  const p = playerPos();
-  const dx = p.x - x;
-  const dz = p.z - z;
-  return Math.sqrt(dx * dx + dz * dz);
-}
-
-// --- marker (gold light pillar + ground ring) ---
-function makeMarker(color) {
-  const group = new THREE.Group();
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.3, 1.3, 26, 12, 1, true),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
-  );
-  pillar.position.y = 13;
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(2.4, 3.2, 32),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.06;
-  const disc = new THREE.Mesh(
-    new THREE.CircleGeometry(2.4, 32),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
-  );
-  disc.rotation.x = -Math.PI / 2;
-  disc.position.y = 0.05;
-  group.add(pillar, ring, disc);
-  group.visible = false;
-  game.scene.add(group);
-  return { group, pillar, ring };
-}
-
-function showMarker(x, z) {
-  marker.group.position.set(x, 0, z);
-  marker.group.visible = true;
-}
-
-function hideMarker() {
-  marker.group.visible = false;
-}
-
-// --- enemy figures ---
-function makeEnemyFigure(shirt) {
-  const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.8 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.75, 4, 10), bodyMat);
-  body.position.y = 1.05;
-  body.castShadow = true;
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.26, 12, 10),
-    new THREE.MeshStandardMaterial({ color: 0xd9a077, roughness: 0.7 }),
-  );
-  head.position.y = 1.85;
-  const gun = new THREE.Mesh(
-    new THREE.BoxGeometry(0.08, 0.08, 0.55),
-    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 }),
-  );
-  gun.position.set(0.3, 1.25, 0.25);
-  // Red downward triangle above the head: this one is hostile.
-  const tri = new THREE.Mesh(
-    new THREE.ConeGeometry(0.34, 0.55, 4),
-    new THREE.MeshBasicMaterial({ color: 0xff2e2e }),
-  );
-  tri.rotation.x = Math.PI;
-  tri.position.y = 2.45;
-  group.add(body, head, gun, tri);
-  group.userData.bodyMat = bodyMat;
-  return group;
-}
-
-function spawnEnemies(n, cx, cz) {
-  const shirts = [0x222222, 0x3a3a3a, 0x4a2a2a, 0x2a2a4a, 0x333333, 0x442222];
-  for (let i = 0; i < n; i++) {
-    const off = ENEMY_OFFSETS[i % ENEMY_OFFSETS.length];
-    const group = makeEnemyFigure(shirts[i % shirts.length]);
-    group.position.set(cx + off[0], 0, cz + off[1]);
-    game.scene.add(group);
-    const enemy = { group, health: ENEMY_HEALTH, alive: true, shootT: 0.6 + i * 0.25, flashT: 0, dead: false, removeAt: 0 };
-    group.userData.enemy = enemy;
-    enemies.push(enemy);
+  function toast(text) {
+    if (VR.HUD && VR.HUD.showToast) {
+      try { VR.HUD.showToast(text); } catch (e) { /* HUD optional */ }
+    }
   }
-}
 
-function clearEnemies() {
-  for (const e of enemies) game.scene.remove(e.group);
-  enemies.length = 0; // keep the array identity: game.enemies points at it
-}
-
-function clearChaseCar() {
-  if (!chaseCar) return;
-  if (chaseCar.group) game.scene.remove(chaseCar.group);
-  const i = game.cars.indexOf(chaseCar);
-  if (i >= 0) game.cars.splice(i, 1);
-  chaseCar = null;
-}
-
-function clearStageActors() {
-  clearEnemies();
-  clearChaseCar();
-  timerLeft = null;
-  killTotal = 0;
-  killCount = 0;
-}
-
-// --- stage helpers ---
-function stageKind(def) {
-  const o = def.objective.toLowerCase();
-  if (/take out|survive the siege/.test(o)) return 'combat';
-  if (/lose|stay hidden/.test(o)) return 'loseCops';
-  if (/chase/.test(o)) return 'chase';
-  return 'reach';
-}
-
-function parseKillTotal(objective) {
-  let m = objective.match(/take out\s+(\d+)/i);
-  if (m) return Number(m[1]);
-  m = objective.match(/\/\s*(\d+)\s*down/i);
-  if (m) return Number(m[1]);
-  return 6;
-}
-
-function combatText(def) {
-  const total = killTotal || parseKillTotal(def.objective);
-  const base = def.objective.replace(/\d+\s*\/\s*\d+\s*down/i, '').replace(/—\s*$/, '').trim();
-  return `${base} — ${killCount} / ${total} down`;
-}
-
-function emitObjective() {
-  const m = MISSIONS[game.missions.current];
-  const def = m && m.stages ? m.stages[game.missions.stage] : null;
-  // While idle/done the objective is a status line set by fail/complete
-  // ("failed — press E at the marker", "Next: ... press E ..."); only an
-  // active mission shows its live stage objective (with kill count / timer).
-  let text = game.missions.objective;
-  if (game.missions.state === 'active' && def) {
-    text = stageKind(def) === 'combat' ? combatText(def) : def.objective;
+  function dialogue(name, role, text) {
+    if (VR.HUD && VR.HUD.showDialogue) {
+      try { VR.HUD.showDialogue(name, role, text); } catch (e) { /* HUD optional */ }
+    }
   }
-  game.events.emit('objective', {
-    text,
-    stage: game.missions.stage,
-    total: m ? m.stages.length : 0,
-    timer: timerLeft != null ? Math.max(0, Math.ceil(timerLeft)) : null,
-  });
-}
 
-function setupStage() {
-  clearStageActors();
-  const m = MISSIONS[game.missions.current];
-  const def = m.stages[game.missions.stage];
-  const kind = stageKind(def);
-  timerLeft = def.timer != null ? def.timer : null;
-  if (kind === 'combat') {
-    killTotal = parseKillTotal(def.objective);
-    killCount = 0;
-    spawnEnemies(killTotal, def.target[0], def.target[1]);
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.ceil(sec));
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return (m < 10 ? '0' + m : '' + m) + ':' + (s < 10 ? '0' + s : '' + s);
   }
-  if (kind === 'chase') spawnChaseCar();
-  if (def.target) {
-    showMarker(def.target[0], def.target[1]);
-    game.missions.target = [def.target[0], def.target[1]];
-  } else if (kind !== 'chase') {
-    hideMarker();
-    game.missions.target = null;
+
+  // ---- Beacon: gold vertical light pillar at the active target ----
+  function ensureBeacon() {
+    if (_beacon) return _beacon;
+    if (typeof THREE === 'undefined') return null;
+    if (!VR.World || !VR.World.scene) return null;
+    try {
+      var geo = new THREE.CylinderGeometry(1.4, 1.4, 70, 12, 1, true);
+      var mat = new THREE.MeshBasicMaterial({
+        color: 0xffd23f, transparent: true, opacity: 0.45,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+        depthWrite: false
+      });
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(0, 35, 0);
+      if (VR.World.makeGlowSprite) {
+        var glow = VR.World.makeGlowSprite(0xffd23f, 14);
+        glow.position.y = -33;
+        mesh.add(glow);
+      }
+      mesh.visible = false;
+      VR.World.scene.add(mesh);
+      _beacon = mesh;
+    } catch (e) { _beacon = null; }
+    return _beacon;
   }
-  // Heat scripted by the story: M2 opens at 2 stars, the M3 club job draws
-  // 2 stars once the shooting starts, the M4 grab puts the heli up (3 stars).
-  // Via police.setWanted so the hide/busted clocks reset (a raw
-  // `game.wanted = n` would leave a half-spent hiddenTime behind).
-  if (game.missions.current === 2 && game.missions.stage === 0) policeSetWanted(2);
-  if (game.missions.current === 3 && game.missions.stage === 2) policeSetWanted(2);
-  if (game.missions.current === 4 && game.missions.stage === 1) policeSetWanted(3);
-  game.missions.objective = kind === 'combat' ? combatText(def) : def.objective;
-  emitObjective();
-}
 
-// --- public mission flow ---
-export function startMission(i) {
-  // Clamp, never reject: an old save (8-mission era) can hold current 6 or 7,
-  // and continueGame passes it straight in. Clamping to the finale keeps the
-  // player near the end instead of crashing or silently doing nothing; a
-  // finished old save (7, state 'done') replays the finale, which is safe.
-  if (typeof i !== 'number' || !Number.isFinite(i)) i = 0;
-  i = Math.max(0, Math.min(Math.floor(i), MISSIONS.length - 1));
-  if (game.missions.state === 'active' && game.missions.current === i) return;
-  clearStageActors();
-  game.missions.current = i;
-  game.missions.stage = 0;
-  game.missions.state = 'active';
-  say(BRIEFING_SPEAKER[i], MISSIONS[i].briefing);
-  setupStage();
-}
-
-export function advanceStage() {
-  if (game.missions.state !== 'active') return;
-  game.missions.stage += 1;
-  const m = MISSIONS[game.missions.current];
-  if (game.missions.stage >= m.stages.length) {
-    completeMission();
-    return;
+  function placeBeacon(x, z) {
+    var b = ensureBeacon();
+    if (b) {
+      b.position.x = x;
+      b.position.z = z;
+      b.visible = true;
+    }
   }
-  setupStage();
-  const line = STAGE_LINES[`${game.missions.current}:${game.missions.stage}`];
-  if (line) say(line.who, line.text);
-}
 
-export function failMission(reason) {
-  if (game.missions.state !== 'active') return;
-  clearStageActors();
-  hideMarker();
-  const m = MISSIONS[game.missions.current];
-  game.missions.stage = 0;
-  game.missions.state = 'idle';
-  game.missions.objective = `${m.title} — failed (${reason}). Press E ${game.missions.target ? 'at the gold marker ' : ''}to retry.`;
-  game.missions.target = m.stages[0].target ? [m.stages[0].target[0], m.stages[0].target[1]] : null;
-  if (game.missions.target) showMarker(game.missions.target[0], game.missions.target[1]);
-  say('lena', `That went sideways, Kai. ${m.title} is still open — get back to the marker and press E to run it again.`);
-  game.events.emit('mission', { result: 'failed', mission: game.missions.current, reason });
-  emitObjective();
-}
+  function hideBeacon() {
+    if (_beacon) _beacon.visible = false;
+  }
 
-export function completeMission() {
-  if (game.missions.state !== 'active') return;
-  clearStageActors();
-  hideMarker();
-  const m = MISSIONS[game.missions.current];
-  // game.addMoney emits the 'money' event itself; no second emit here.
-  game.addMoney(m.reward, `Mission complete: ${m.title}`);
-  game.addRespect(m.respect);
-  say(BRIEFING_SPEAKER[game.missions.current], COMPLETE_LINES[game.missions.current]);
-  game.events.emit('mission', { result: 'complete', mission: game.missions.current, reward: m.reward });
-  if (game.missions.current >= MISSIONS.length - 1) {
-    game.missions.state = 'done';
-    game.missions.stage = 0;
-    game.missions.objective = `${m.title} complete — Puerto Mira is yours, Kai.`;
-    game.missions.target = null;
-  } else {
-    game.missions.current += 1;
-    game.missions.stage = 0;
-    game.missions.state = 'idle';
-    const next = MISSIONS[game.missions.current];
-    game.missions.target = next.stages[0].target ? [next.stages[0].target[0], next.stages[0].target[1]] : null;
-    if (game.missions.target) {
-      game.missions.objective = `Next: ${next.title} — press E at the gold marker to start.`;
-      showMarker(game.missions.target[0], game.missions.target[1]);
+  function setObjectiveText() {
+    var chain = CHAINS[current];
+    if (!chain || !active) { objectiveText = ''; return; }
+    var obj = chain[objectiveIndex];
+    objectiveText = obj ? obj.text : '';
+    if (current === 7 && timeLeft > 0) {
+      objectiveText += ' — ' + fmtTime(timeLeft) + ' remaining';
+    }
+  }
+
+  function applyObjective() {
+    var chain = CHAINS[current];
+    if (!chain) { active = false; objectiveText = ''; targetPos = null; hideBeacon(); return; }
+    var obj = chain[objectiveIndex];
+    if (!obj) { active = false; objectiveText = ''; targetPos = null; hideBeacon(); return; }
+    _target.x = obj.x;
+    _target.z = obj.z;
+    targetPos = _target;
+    setObjectiveText();
+    placeBeacon(obj.x, obj.z);
+    if (obj.who && obj.line) dialogue(obj.who, obj.role || '', obj.line);
+  }
+
+  function start(i) {
+    if (typeof i !== 'number' || i < 0 || i >= MISSIONS.length) return false;
+    if (!CHAINS[i]) return false;
+    current = i;
+    objectiveIndex = 0;
+    active = true;
+    timeLeft = (i === 7) ? FINALE_SECONDS : 0;
+    if (VR.State) VR.State.mission = i;
+    if (i === 7 && VR.World && VR.World.setTimeOfDay) {
+      try { VR.World.setTimeOfDay(23 * 60 + 30); } catch (e) { /* optional */ }
+    }
+    var m = MISSIONS[i];
+    if (m) {
+      dialogue(m.giver, m.role || '', m.dialogue || '');
+      toast('Mission ' + (i + 1) + ': ' + m.title);
+    }
+    applyObjective();
+    return true;
+  }
+
+  function payReward(m) {
+    var money = m.reward || 0;
+    var respect = m.respect || 0;
+    if (money > 0) {
+      if (VR.Economy && VR.Economy.addMoney) VR.Economy.addMoney(money);
+      else if (VR.State) VR.State.money = (VR.State.money || 0) + money;
+    }
+    if (respect > 0) {
+      if (VR.Economy && VR.Economy.addRespect) VR.Economy.addRespect(respect);
+      else if (VR.State) VR.State.respect = (VR.State.respect || 0) + respect;
+    }
+    return { money: money, respect: respect };
+  }
+
+  function finishMission() {
+    var m = MISSIONS[current];
+    active = false;
+    objectiveText = '';
+    targetPos = null;
+    hideBeacon();
+    timeLeft = 0;
+    var rw = m ? payReward(m) : { money: 0, respect: 0 };
+    if (m) {
+      var msg = 'Mission complete: ' + m.title;
+      if (rw.money > 0) msg += '  +$' + rw.money;
+      if (rw.respect > 0) msg += '  +' + rw.respect + ' respect';
+      toast(msg);
+    }
+    if (current === 7) {
+      toast('VANDARA RUSH complete — Damian escaped Vandara Bay!');
+      dialogue('Tante Soraya', 'Fixer & Garage Owner',
+        'You did it, Damian. The hydrofoil is far from the dock and nobody is chasing you anymore. Vandara Bay will always remember your name, dear.');
+    }
+    if (VR.State) VR.State.mission = Math.min(current + 1, MISSIONS.length - 1);
+    if (VR.Save && VR.Save.save) {
+      try { VR.Save.save(); } catch (e) { /* save optional */ }
+    }
+    // Chain the story: the next mission starts at once with its giver
+    // dialogue — otherwise the game stalls with no active mission.
+    if (current < MISSIONS.length - 1) {
+      start(current + 1);
+    }
+    return true;
+  }
+
+  function completeObjective() {
+    if (!active) return false;
+    var chain = CHAINS[current];
+    if (!chain) return false;
+    objectiveIndex++;
+    if (objectiveIndex >= chain.length) {
+      finishMission();
     } else {
-      // No marker to walk to (Heat Wave: the heat comes to you) — E anywhere
-      // starts it; see the idle branch in update().
-      game.missions.objective = `Next: ${next.title} — press E to start.`;
+      applyObjective();
+      toast(objectiveText);
+    }
+    return true;
+  }
+
+  // Forward a crime committed during a mission to the police (slice D).
+  // Called by combat / vehicle hijack code; safe when police is absent.
+  function reportCrime(kind) {
+    if (VR.Police && VR.Police.addHeat) {
+      try {
+        var heat = (kind === 'shoot') ? 1 : (kind === 'hijack') ? 1 : 1;
+        VR.Police.addHeat(heat);
+      } catch (e) { /* police optional */ }
+    } else if (VR.Police && VR.Police.reportCrime) {
+      try { VR.Police.reportCrime(kind); } catch (e) { /* optional */ }
     }
   }
-  // Save LAST: the save must record the NEXT mission (progress), not the one
-  // just completed — saving before the increment above made Continue replay
-  // the finished mission (v2 bug).
-  if (game.save && typeof game.save.saveGame === 'function') game.save.saveGame();
-  emitObjective();
-}
 
-// --- chase stage ---
-function spawnChaseCar() {
-  clearChaseCar();
-  chaseCar = spawnCar('vela', 180, 150, Math.PI / 2, { isTraffic: false });
-  chaseWp = 0;
-  if (chaseCar) {
-    chaseCar.heading = Math.atan2(CHASE_LOOP[0][0] - 180, CHASE_LOOP[0][1] - 150);
-    showMarker(180, 150);
-    game.missions.target = [180, 150];
-  }
-}
-
-function updateChase(dt) {
-  if (!chaseCar) return;
-  const wp = CHASE_LOOP[chaseWp];
-  const dx = wp[0] - chaseCar.pos.x;
-  const dz = wp[1] - chaseCar.pos.z;
-  const d = Math.sqrt(dx * dx + dz * dz);
-  if (d < 10) {
-    chaseWp = (chaseWp + 1) % CHASE_LOOP.length;
-    return;
-  }
-  const desired = Math.atan2(dx, dz);
-  let diff = desired - chaseCar.heading;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  chaseCar.heading += Math.max(-1.8 * dt, Math.min(1.8 * dt, diff));
-  chaseCar.pos.x += Math.sin(chaseCar.heading) * CHASE_SPEED * dt;
-  chaseCar.pos.z += Math.cos(chaseCar.heading) * CHASE_SPEED * dt;
-  chaseCar.speed = CHASE_SPEED;
-  if (chaseCar.group) {
-    chaseCar.group.position.set(chaseCar.pos.x, 0, chaseCar.pos.z);
-    chaseCar.group.rotation.y = chaseCar.heading;
-  }
-  // The gold marker rides with the traitor so the player can track him.
-  marker.group.position.set(chaseCar.pos.x, 0, chaseCar.pos.z);
-  game.missions.target = [Math.round(chaseCar.pos.x), Math.round(chaseCar.pos.z)];
-}
-
-// --- combat ---
-function updateEnemies(dt) {
-  const p = playerPos();
-  for (let i = enemies.length - 1; i >= 0; i--) {
-    const e = enemies[i];
-    // Killed by the player's own shooting (player.js sets alive=false):
-    // count the kill and schedule the corpse removal like a local kill.
-    if (e.alive === false && !e.dead) {
-      e.dead = true;
-      e.removeAt = elapsed + 3;
-      e.group.rotation.x = -Math.PI / 2;
-      e.group.position.y = 0.35;
-      killCount += 1;
-      emitObjective();
+  // ---- per-frame: beacon pulse, arrival detection, finale timer ----
+  function playerXZ(out) {
+    if (VR.State && VR.State.inCar && VR.State.car && VR.State.car.group) {
+      out.x = VR.State.car.group.position.x;
+      out.z = VR.State.car.group.position.z;
+      return true;
     }
-    if (e.dead) {
-      if (elapsed >= e.removeAt) {
-        game.scene.remove(e.group);
-        enemies.splice(i, 1);
+    if (VR.Player && VR.Player.pos) {
+      out.x = VR.Player.pos.x;
+      out.z = VR.Player.pos.z;
+      return true;
+    }
+    return false;
+  }
+
+  var _pp = { x: 0, z: 0 };
+
+  function update(dt) {
+    _pulseT += dt;
+    if (_beacon && _beacon.visible) {
+      _beacon.material.opacity = 0.35 + 0.18 * Math.sin(_pulseT * 3.5);
+      _beacon.rotation.y += dt * 0.4;
+    }
+    // Economy proximity/prompts run even with no mission active;
+    // main.js only calls Missions.update, so we forward the tick.
+    // (E-key interaction itself lives on economy.js's keydown listener,
+    // so it can never double-fire with a justPressed check here.)
+    if (VR.Economy && VR.Economy.update) {
+      try { VR.Economy.update(dt); } catch (e) { /* economy optional */ }
+    }
+    if (!active) return;
+    if (!VR.State || VR.State.mode !== 'playing') return;
+
+    // Finale countdown (mission 8): midnight = fail, restart the mission.
+    if (current === 7 && timeLeft > 0) {
+      timeLeft -= dt;
+      setObjectiveText();
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+        toast('Midnight — the hydrofoil left without Damian. Mission restarted.');
+        dialogue('Tante Soraya', 'Fixer & Garage Owner',
+          'That hydrofoil is gone, dear. But we still have one more chance. This time, don\'t stop for anything.');
+        start(7);
+        return;
       }
-      continue;
     }
-    const dx = p.x - e.group.position.x;
-    const dz = p.z - e.group.position.z;
-    const d = Math.sqrt(dx * dx + dz * dz);
-    e.group.lookAt(p.x, 0, p.z);
-    if (d > 8 && d < 40) {
-      const step = ENEMY_WALK_SPEED * dt;
-      e.group.position.x += (dx / d) * step;
-      e.group.position.z += (dz / d) * step;
-    }
-    if (e.flashT > 0) {
-      e.flashT -= dt;
-      if (e.flashT <= 0) e.group.userData.bodyMat.emissive.setHex(0x000000);
-    }
-    e.shootT -= dt;
-    if (e.shootT <= 0) {
-      e.shootT = ENEMY_SHOOT_INTERVAL;
-      if (d < ENEMY_SHOOT_RANGE && Math.random() < ENEMY_HIT_CHANCE) {
-        game.player.health = Math.max(0, game.player.health - ENEMY_DAMAGE);
-        game.events.emit('damage', { amount: ENEMY_DAMAGE });
+
+    // Arrival: player (or their car) reached the active target.
+    if (targetPos && playerXZ(_pp)) {
+      var dx = _pp.x - targetPos.x;
+      var dz = _pp.z - targetPos.z;
+      if (dx * dx + dz * dz <= ARRIVE_RADIUS * ARRIVE_RADIUS) {
+        completeObjective();
       }
     }
   }
-}
 
-  // (Shooting is owned by player.js via game.enemies; see the header note.)
+  VR.Missions = {
+    list: MISSIONS,
+    get current() { return current; },
+    get objectiveText() { return objectiveText; },
+    get targetPos() { return targetPos; },
+    get beacon() { return _beacon; },
+    get active() { return active; },
+    get objectiveIndex() { return objectiveIndex; },
+    get timeLeft() { return timeLeft; },
+    start: start,
+    completeObjective: completeObjective,
+    reportCrime: reportCrime,
+    update: update
+  };
 
-// --- lifecycle ---
-function init(g) {
-  game = g;
-  // player.js shoots mission enemies through this shared array (identity is
-  // kept stable: clearEnemies() empties it in place, never reassigns).
-  game.enemies = enemies;
-  marker = makeMarker(0xffc93c);
-  const first = MISSIONS[0].stages[0].target;
-  game.missions.current = 0;
-  game.missions.stage = 0;
-  game.missions.state = 'idle';
-  game.missions.objective = `Next: ${MISSIONS[0].title} — press E at the gold marker to start.`;
-  game.missions.target = first ? [first[0], first[1]] : null;
-  if (first) showMarker(first[0], first[1]);
-  // Busted / wasted arrive as mode changes (main.js only calls update() while
-  // playing, so the mode event is the only way to catch a fail mid-mission).
-  if (game.events && typeof game.events.on === 'function') {
-    game.events.on('mode', (data) => {
-      if (data && (data.mode === 'busted' || data.mode === 'wasted') && game.missions.state === 'active') {
-        failMission(data.mode === 'busted' ? 'Busted by the SBPD' : 'Wasted');
-      }
-    });
-  }
-  emitObjective();
-}
-
-function update(dt) {
-  elapsed += dt;
-  const eDown = game.input.keys.has('KeyE');
-  const ePressed = eDown && !ePrev;
-  ePrev = eDown;
-
-  if (marker.group.visible) {
-    marker.ring.rotation.z += dt * 0.8;
-    marker.pillar.material.opacity = 0.2 + 0.08 * Math.sin(elapsed * 3);
-  }
-
-  // Idle: a mission ONLY starts when the player presses E within 12 m of
-  // the gold marker. Walking/driving through the marker never starts it —
-  // a fresh player needs a moment to get ready before a timed run
-  // (e.g. The Drop, 3:00 on the clock). Missions whose first stage has no
-  // target (Heat Wave: the heat comes to you) start on E anywhere.
-  if (game.missions.state === 'idle') {
-    const t = game.missions.target;
-    if (ePressed && (!t || distTo(t[0], t[1]) <= 12)) startMission(game.missions.current);
-  }
-
-  if (game.missions.state !== 'active') return;
-
-  if (timerLeft != null) {
-    const prevWhole = Math.ceil(timerLeft);
-    timerLeft -= dt;
-    if (Math.ceil(timerLeft) !== prevWhole) emitObjective();
-    if (timerLeft <= 0) {
-      failMission('Out of time');
-      return;
-    }
-  }
-
-  const m = MISSIONS[game.missions.current];
-  const def = m.stages[game.missions.stage];
-  if (!def) return;
-  const kind = stageKind(def);
-  if (kind === 'reach') {
-    if (def.target && distTo(def.target[0], def.target[1]) <= MARKER_RADIUS) advanceStage();
-  } else if (kind === 'combat') {
-    updateEnemies(dt);
-    if (killCount >= killTotal) advanceStage();
-  } else if (kind === 'loseCops') {
-    // "Break line of sight" clears once a star is lost; the other lose-heat
-    // stages clear only when wanted hits 0.
-    if (def.objective.toLowerCase().includes('break line of sight')) {
-      if (game.wanted <= 1) advanceStage();
-    } else if (game.wanted === 0) {
-      advanceStage();
-    }
-  } else if (kind === 'chase') {
-    updateChase(dt);
-    if (chaseCar && distTo(chaseCar.pos.x, chaseCar.pos.z) <= CHASE_CATCH_DIST) advanceStage();
-  }
-}
-
-export default { init, update, startMission, advanceStage, failMission, completeMission };
+})(window.VR = window.VR || {});

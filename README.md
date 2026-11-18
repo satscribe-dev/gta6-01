@@ -1,40 +1,103 @@
-# SOLARA BAY
+# VANDARA RUSH
 
-[![gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/competitions/gta6-01)
-[![rank](https://make.fun/badge/gta6-01/satscribe-dev/gta6-01/rank.svg)](https://make.fun/competitions/gta6-01)
-[![reward](https://make.fun/badge/gta6-01/satscribe-dev/gta6-01/reward.svg)](https://make.fun/competitions/gta6-01)
+Open-world crime game di kota fiktif **Vandara Bay** — kota teluk tropis
+dengan boulevard pantai, pasar lentera, plaza menara kaca, dan dockyard
+industri. Damian Reyes, pengemudi muda yang pulang ke kota, mengambil
+pekerjaan dari Tante Soraya (fixer sekaligus pemilik bengkel) sementara
+Inspektur Bramantyo yang korup memburunya dan bos sindikat pelabuhan
+Victor Halim menarik benang dari belakang. Delapan misi cerita berakhir
+dengan pelarian hydrofoil tengah malam.
 
-An open-world crime game in the spirit of GTA 6, built for the [gta6-01 bounty on make.fun](https://make.fun/competitions/gta6-01).
+Dibangun 100% offline dengan Three.js (r159, di-vendor di
+`game/vendor/`), tanpa build step, tanpa aset eksternal.
 
-**Solara Bay** is a sun-soaked island city you explore on foot and by car. Steal cars, outrun the SBPD, run 8 story missions for Kai Mercer and his crew, take taxi fares, race the streets, and hunt 20 hidden sun coins — while the wanted level, the police scanner, and the radio keep the city alive around you.
-
-## Play it
-
-Serve `game/` with any static server and open `index.html` in desktop Chrome:
+## Cara jalanin
 
 ```sh
 node serve.ts
-# open http://localhost:8080
+# buka http://localhost:8080
 ```
 
-No build step, no network requests: every script, the Three.js engine under `game/vendor/`, and every sound is a file in this repository.
+## Kontrol
 
-## Controls
+| Input | Aksi |
+| --- | --- |
+| WASD | Jalan / nyetir |
+| Shift | Lari / nitro (di mobil) |
+| Space | Lompat / handbrake drift (di mobil) |
+| F | Masuk / keluar mobil |
+| Klik kiri | Tembak |
+| Klik kanan (tahan) | Aim + crosshair |
+| 1–4 | Ganti senjata (Tinju / Pistol / SMG / Shotgun) |
+| R | Reload |
+| Q | Ganti stasiun radio |
+| E | Interaksi (toko / bengkel / safehouse) |
+| P atau Esc | Pause (peta kota penuh) |
 
-- **WASD** walk / drive · **Mouse** aim and look · **Shift** sprint / nitro · **Space** handbrake drift / jump
-- **F** enter / steal / exit a vehicle · **E** interact · **Q** previous radio station · **R** reload
-- **1–4** weapons · **M** city map · **V** chase / classic camera · **Esc** pause
+## Sistem
 
-## What is in the game
+- **Misi (8):** First Delivery, Lantern Chase, Dockyard Heist, Soraya's
+  Escort, Apex Repo, Vault at Golden Pier, Double Cross, Last Hydrofoil
+  Out. Misi aktif ditandai tiang cahaya emas di titik target; dialog
+  karakter tampil lengkap dengan potret.
+- **Wanted (0–5 bintang):** panas naik saat menembak, menabrak, atau
+  mencuri mobil. Bintang 1–2: mobil patroli mengejar. Bintang 3:
+  roadblock. Bintang 4–5: unit taktis bersenjata + helikopter polisi
+  dengan sorot lampu. Lolos dari pandangan cukup lama bikin bintang turun.
+- **Kendaraan (7):** Apex GT (sport coupe teal milik Damian), sedan,
+  taksi kuning, SUV, truk kargo, motor, hydrofoil. Fisik arcade:
+  drift handbrake + asap ban, nitro + api knalpot, kerusakan + asap
+  dan ledakan.
+- **Toko / bengkel / safehouse:** toko senjata Kencana (beli senjata +
+  amunisi), bengkel Soraya (perbaiki + cat ulang mobil), safehouse
+  Damian (pulihkan health + save).
+- **Radio:** VANDARA 104.2 FM dan GELOMBANG 88.8 FM (synth Web Audio,
+  tombol Q).
+- **Save:** otomatis tiap misi selesai + via safehouse; tombol Continue
+  di title screen.
 
-- A full 3D island city: six districts, beach and ocean, day/sunset/night cycle, traffic and pedestrians
-- Wanted level 0–5 with named SBPD units (PURSUIT / RAMMING / ROADBLOCK) and a searchlight helicopter
-- 8 story missions with dialogue, timers and progression (money + respect)
-- Side activities: taxi jobs, street races, hidden collectibles
-- A live HUD: mission card, pulsing wanted stars, police scanner feed, ticking cash counter, combo/drift meter, live minimap, dialogue, radio
-- Synthesized sound: engine, sirens, gunfire, two radio stations — no audio files
-- Saves in the browser (localStorage)
+## Struktur file
 
-## Entry
+```text
+main.ts          bundler entri (salin game/ + screenshots/ ke /output,
+                 tulis dossier.json via vendor/makefun-game.ts)
+serve.ts         server statis dev (node serve.ts -> :8080)
+shots.json       4 screenshot + query ?shot= masing-masing
+screenshots/    01-cover.jpg, 02-night-pursuit.jpg,
+                 03-onfoot-combat.jpg, 04-world-map.jpg
+game/index.html  entry point + HUD DOM
+game/vendor/     three.min.js r159 (+ LICENSE)
+game/src/
+  config.js      palet, distrik, senjata, kendaraan, misi, radio
+  input.js       keyboard + mouse + pointer lock
+  audio.js       mesin, sirene, radio, SFX (Web Audio)
+  world.js       renderer, langit golden-hour/malam, laut, jalan
+  roads.js       graf jalan (dipakai traffic, polisi, minimap)
+  buildings.js   kota prosedural: gedung, kontainer, tenda, palem
+  vehicles.js    pabrik + fisik mobil (semua tipe)
+  traffic.js     mobil sipil di jalan
+  pedestrians.js pejalan kaki (panik saat tembakan/sirene)
+  player.js      Damian jalan kaki + kamera chase mobil
+  police.js      wanted, patroli, roadblock, taktis, helikopter
+  combat.js      4 senjata: muzzle flash, tracer, shake
+  missions.js    8 misi + beacon emas + dialog
+  economy.js     uang, respect, toko, bengkel, safehouse
+  save.js        save/load localStorage
+  effects.js     partikel (asap, api, ledakan) + screen shake
+  hud.js         HUD DOM: misi, uang, jam, bintang, speedo, senjata
+  minimap.js     radar bundar + blip polisi/misi/toko
+  menus.js       title, pause + peta kota penuh + legenda
+  shots.js       staging deterministik ?shot= untuk screenshot
+  main.js        boot + loop utama (fixed timestep 1/60)
+  hud.css        style HUD + menu
+```
 
-Built by a coding agent in recorded sessions for make.fun's gta6-01 competition. `main.ts` hands the game in: it copies `game/` and `screenshots/` to `/output` and writes `dossier.json`.
+## Screenshot staging
+
+Buka `game/index.html?shot=<nama>` untuk frame yang sudah di-stage:
+
+- `?shot=cover` — Apex GT drift di boulevard Golden Pier, dikejar
+  polisi + helikopter, misi 1 aktif.
+- `?shot=night` — malam neon, wanted 4, roadblock di Pasar Lentera.
+- `?shot=combat` — baku tembak jalan kaki dengan SMG.
+- `?shot=map` — menu pause + peta kota penuh + waypoint misi.

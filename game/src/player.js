@@ -1,459 +1,330 @@
-// SOLARA BAY — on-foot player controller (W2). Kai Mercer.
-// WASD relative to the camera, sprint, jump, mouse-aimed hitscan shooting,
-// weapon switching, enter/exit cars, health/armour, wasted at 0 HP.
-import * as THREE from 'three';
-import { WEAPONS, CHARACTERS } from './config.js';
-import { nearestCar, stealCar } from './vehicles.js';
+// player.js — Damian Reyes on foot: third-person Pointer Lock mouse
+// look, WASD + Shift sprint + Space jump, procedural limb swing,
+// wall collision via VR.World.isBlocked, FOV widening on sprint.
+// Car enter/exit delegates to VR.Vehicles when it exists (slice B).
+// CAMERA OWNER: this file owns every gameplay camera — the on-foot
+// over-shoulder camera AND the in-car chase camera (updateCarCamera,
+// cinematic follow + corner roll + nitro FOV). main.js never positions
+// the camera while playing; it only runs the title orbit.
+(function (VR) {
+  'use strict';
 
-const WALK_SPEED = 4;
-const SPRINT_SPEED = 7;
-const JUMP_VELOCITY = 5.2;
-const GRAVITY = 14;
-const CITY_HALF = 238;
-const BEACH_Z = 212;
-const AMMO_KEY = ['fists', 'pistol', 'smg', 'shotgun'];
+  var C = VR.Config;
+  var P = C.PALETTE;
+  var PT = C.PLAYER;
 
-let game = null;
-let fireCooldown = 0;
-let reloadCooldown = 0;
-let walkPhase = 0;
-let vy = 0;
-let grounded = true;
-let mouseHeld = false;
-let tracer = null;
-let tracerLife = 0;
-let flash = null;
-let flashLife = 0;
-let gun = null;
-let armL = null;
-let armR = null;
-let legL = null;
-let legR = null;
-let body = null;
+  var pos = new THREE.Vector3(-210, 0, -30); // boulevard intersection,
+  // facing east down a clear street (no building directly ahead)
+  var yaw = Math.PI / 2; // facing east, into the city
+  // Art pass (18 Nov): near-level default pitch — the old -0.12 stared
+  // down at the asphalt; -0.04 keeps the horizon and sky in the top
+  // of the frame on foot and in the car.
+  var pitch = -0.04;
+  var vy = 0;
+  var grounded = true;
+  var walkPhase = 0;
+  var speedNow = 0;
+  var fovNow = 62;
 
-const _fwd = new THREE.Vector3();
-const _right = new THREE.Vector3();
-const _move = new THREE.Vector3();
-const _eye = new THREE.Vector3();
-const _aim = new THREE.Vector3();
-const _muzzle = new THREE.Vector3();
-const _ray = new THREE.Raycaster();
+  // ---------- smooth low-poly Damian (Slice F upgrade) ----------
+  // No box geometry anywhere on the character: the head is a smooth
+  // sphere with modern short hair, the torso a flattened capsule with
+  // a shoulder bar, and the limbs tapered cylinders. The pivots and
+  // proportions are the same as before, so the walk swing, camera and
+  // collision are untouched.
+  function std(color, rough) {
+    return new THREE.MeshStandardMaterial({
+      color: color, roughness: rough == null ? 0.85 : rough,
+      metalness: 0, flatShading: false
+    });
+  }
+  function ball(r, mat, px, py, pz, sx, sy, sz) {
+    var m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat);
+    m.position.set(px, py, pz);
+    if (sx !== undefined) m.scale.set(sx, sy, sz);
+    m.castShadow = true;
+    return m;
+  }
 
-function buildCharacter() {
-  const g = new THREE.Group();
-  const shirt = CHARACTERS.kai.color;
-  const skin = 0xd9a066;
-  const pants = 0x2b3242;
+  var group = new THREE.Group();
+  var shirt = std(P.damianShirt);
+  var pants = std(P.damianPants);
+  var skin = std(P.damianSkin);
+  var hair = std(0x1a1a1a, 0.55);
 
-  body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.32, 0.72, 6, 12),
-    new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.85 }),
-  );
-  body.position.y = 1.08;
-  body.castShadow = true;
-  g.add(body);
+  // Torso: capsule, flattened front-to-back; the rounded top reads as
+  // natural shoulders, and a horizontal shoulder capsule joins the arms.
+  var torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.27, 0.20, 6, 16), shirt);
+  torso.position.set(0, 1.12, 0);
+  torso.scale.set(1, 1, 0.62);
+  torso.castShadow = true;
+  var shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.44, 4, 12), shirt);
+  shoulders.rotation.z = Math.PI / 2;
+  shoulders.position.set(0, 1.42, 0);
+  shoulders.castShadow = true;
+  // Head: smooth sphere; hair: a short modern cap plus a back sweep.
+  var head = ball(0.18, skin, 0, 1.68, 0);
+  var hairTop = new THREE.Mesh(
+    new THREE.SphereGeometry(0.19, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hair);
+  hairTop.position.set(0, 1.70, -0.01);
+  hairTop.castShadow = true;
+  var hairBack = ball(0.13, hair, 0, 1.66, -0.10, 1, 0.9, 0.6);
+  group.add(torso); group.add(shoulders); group.add(head);
+  group.add(hairTop); group.add(hairBack);
 
-  // dark belt / jacket hem
-  const belt = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, 0.12, 0.42),
-    new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.9 }),
-  );
-  belt.position.y = 0.72;
-  g.add(belt);
-
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.24, 18, 14),
-    new THREE.MeshStandardMaterial({ color: skin, roughness: 0.7 }),
-  );
-  head.position.y = 1.78;
-  head.castShadow = true;
-  g.add(head);
-
-  const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.245, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
-    new THREE.MeshStandardMaterial({ color: 0x14100c, roughness: 0.95 }),
-  );
-  hair.position.y = 1.82;
-  g.add(hair);
-
-  function limb(w, h, d, color, x, y) {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, y, 0);
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.9 }),
-    );
-    mesh.position.y = -h / 2;
-    mesh.castShadow = true;
-    pivot.add(mesh);
-    g.add(pivot);
+  // Arms pivot at the shoulder; legs pivot at the hip. Limbs are
+  // tapered cylinders (narrower at the far end), never boxes.
+  function limb(r, h, mat, px, py) {
+    var pivot = new THREE.Group();
+    pivot.position.set(px, py, 0);
+    var m = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.85, r, h, 12), mat);
+    m.position.y = -h / 2;
+    m.castShadow = true;
+    pivot.add(m);
+    group.add(pivot);
     return pivot;
   }
+  var armL = limb(0.085, 0.62, shirt, -0.37, 1.44);
+  var armR = limb(0.085, 0.62, shirt, 0.37, 1.44);
+  var legL = limb(0.105, 0.72, pants, -0.14, 0.76);
+  var legR = limb(0.105, 0.72, pants, 0.14, 0.76);
+  // Hands (skin spheres) at the end of the arms.
+  armL.add(ball(0.075, skin, 0, -0.66, 0));
+  armR.add(ball(0.075, skin, 0, -0.66, 0));
+  // Shoes: flattened ellipsoid toes.
+  legL.add(ball(0.11, std(0x222222), 0, -0.74, 0.04, 1, 0.55, 1.4));
+  legR.add(ball(0.11, std(0x222222), 0, -0.74, 0.04, 1, 0.55, 1.4));
 
-  armL = limb(0.13, 0.62, 0.13, shirt, -0.44, 1.42);
-  armR = limb(0.13, 0.62, 0.13, shirt, 0.44, 1.42);
-  legL = limb(0.17, 0.72, 0.17, pants, -0.17, 0.74);
-  legR = limb(0.17, 0.72, 0.17, pants, 0.17, 0.74);
+  group.position.copy(pos);
+  VR.World.scene.add(group);
 
-  // gun held in the right hand (hidden for fists)
-  gun = new THREE.Group();
-  const gunBody = new THREE.Mesh(
-    new THREE.BoxGeometry(0.07, 0.12, 0.42),
-    new THREE.MeshStandardMaterial({ color: 0x191919, roughness: 0.4, metalness: 0.7 }),
-  );
-  gunBody.castShadow = true;
-  gun.add(gunBody);
-  gun.position.set(0, -0.62, 0.12);
-  gun.visible = false;
-  armR.add(gun);
-
-  return g;
-}
-
-function buildShotFx(scene) {
-  // tracer line (reused, hidden when idle)
-  const geo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(), new THREE.Vector3(),
-  ]);
-  tracer = new THREE.Line(geo, new THREE.LineBasicMaterial({
-    color: 0xffe08a, transparent: true, opacity: 0.9,
-  }));
-  tracer.visible = false;
-  tracer.frustumCulled = false;
-  scene.add(tracer);
-
-  // muzzle flash sprite from a generated radial texture (no network)
-  const cv = document.createElement('canvas');
-  cv.width = 64; cv.height = 64;
-  const ctx = cv.getContext('2d');
-  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-  grad.addColorStop(0, 'rgba(255,240,180,1)');
-  grad.addColorStop(0.4, 'rgba(255,160,40,0.9)');
-  grad.addColorStop(1, 'rgba(255,120,0,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 64, 64);
-  flash = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false,
-  }));
-  flash.scale.set(0.7, 0.7, 1);
-  flash.visible = false;
-  scene.add(flash);
-}
-
-function init(g) {
-  game = g;
-  const group = buildCharacter();
-  group.position.copy(game.player.pos);
-  game.scene.add(group);
-  game.player.group = group;
-  game.player.mesh = body;
-  buildShotFx(game.scene);
-
-  window.addEventListener('mousedown', (e) => { if (e.button === 0) mouseHeld = true; });
-  window.addEventListener('mouseup', (e) => { if (e.button === 0) mouseHeld = false; });
-  window.addEventListener('blur', () => { mouseHeld = false; });
-}
-
-function cameraForward() {
-  game.camera.getWorldDirection(_fwd);
-  _fwd.y = 0;
-  if (_fwd.lengthSq() < 0.001) _fwd.set(0, 0, 1);
-  _fwd.normalize();
-  return _fwd;
-}
-
-function switchWeapon(id) {
-  const p = game.player;
-  if (id < 0 || id > 3 || p.weapon === id) return;
-  p.weapon = id;
-  if (gun) {
-    gun.visible = id > 0;
-    // pistol compact, SMG longer, shotgun longest
-    const len = id === 1 ? 1 : id === 2 ? 1.5 : 1.9;
-    gun.scale.set(1, 1, len);
+  // ---------- movement helpers (no allocations) ----------
+  var RADIUS = 0.45;
+  function blockedAt(x, z) {
+    return VR.World.isBlocked(x + RADIUS, z) ||
+           VR.World.isBlocked(x - RADIUS, z) ||
+           VR.World.isBlocked(x, z + RADIUS) ||
+           VR.World.isBlocked(x, z - RADIUS);
   }
-  game.events.emit('weapon', { weapon: id, name: WEAPONS[id].name });
-}
 
-function reload() {
-  const p = game.player;
-  if (p.weapon === 0) return;
-  const key = AMMO_KEY[p.weapon];
-  if (p.ammo[key] >= WEAPONS[p.weapon].ammo) return;
-  p.ammo[key] = WEAPONS[p.weapon].ammo;
-  reloadCooldown = 0.5;
-  fireCooldown = Math.max(fireCooldown, 0.5);
-  game.events.emit('reload', { weapon: p.weapon });
-}
+  var _camTarget = new THREE.Vector3();
+  var _camDesired = new THREE.Vector3();
+  var _lookAt = new THREE.Vector3();
+  var _fwd = new THREE.Vector3();
 
-function shootTarget(root, kind, ref) {
-  const hits = _ray.intersectObject(root, true);
-  if (!hits.length) return null;
-  return { dist: hits[0].distance, point: hits[0].point, kind, ref };
-}
+  // Nitro FOV bonus (+6 deg). Gated on inCar so a stale flag can never
+  // widen the on-foot FOV; exitCar() also clears VR.State.nitroActive.
+  function nitroBonus() {
+    return (VR.State && VR.State.inCar && VR.State.nitroActive) ? 6 : 0;
+  }
 
-function fire() {
-  const p = game.player;
-  const w = WEAPONS[p.weapon];
-  if (fireCooldown > 0 || reloadCooldown > 0) return;
-  fireCooldown = w.rate;
+  function updateCamera(dt) {
+    var cam = VR.World.camera;
+    // Over-shoulder: behind and above, offset to the right.
+    // Art pass: pulled back and raised, aimed at chest height + 2.0
+    // instead of 1.5 — the frame reads horizon + towers + sea in the
+    // top 40% instead of a slab of asphalt.
+    var cy = Math.cos(yaw), sy = Math.sin(yaw);
+    var cp = Math.cos(pitch), sp = Math.sin(pitch);
+    var dist = PT.camDistance + 0.9;
+    _camDesired.set(
+      pos.x - sy * cp * dist + cy * 0.7,
+      pos.y + (PT.camHeight - 0.2) - sp * dist,
+      pos.z - cy * cp * dist - sy * 0.7
+    );
+    if (_camDesired.y < 0.5) _camDesired.y = 0.5;
+    var k = 1 - Math.exp(-dt * 12);
+    cam.position.lerp(_camDesired, k);
+    _lookAt.set(pos.x, pos.y + 2.0, pos.z);
+    cam.lookAt(_lookAt);
+    // FOV widens with sprint speed (+ nitro bonus while driving).
+    var targetFov = 62 + Math.min(1, speedNow / PT.sprintSpeed) * 9 + nitroBonus();
+    fovNow += (targetFov - fovNow) * Math.min(1, dt * 6);
+    if (Math.abs(cam.fov - fovNow) > 0.05) {
+      cam.fov = fovNow;
+      cam.updateProjectionMatrix();
+    }
+  }
 
-  _eye.copy(p.pos); _eye.y += 1.55;
-  cameraForward();
-  _aim.copy(_fwd);
+  // ---------- in-car chase camera (cinematic follow) ----------
+  // Behind + above the player's car, looking ahead down the road,
+  // smoothed so it trails the car instead of snapping; slight roll
+  // into corners; FOV widens with speed and +6 while nitro burns.
+  var _carCamSnap = true;
 
-  // fists: short melee swing, no ammo, no tracer
-  if (p.weapon === 0) {
-    _ray.set(_eye, _aim);
-    _ray.far = 2.4;
-    let best = null;
-    if (Array.isArray(game.enemies)) {
-      for (const e of game.enemies) {
-        if (!e || e.alive === false || !e.group) continue;
-        const hit = shootTarget(e.group, 'enemy', e);
-        if (hit && (!best || hit.dist < best.dist)) best = hit;
+  function updateCarCamera(dt, car) {
+    var cam = VR.World.camera;
+    if (!car || !car.group) return;
+    var cy = Math.cos(car.yaw), sy = Math.sin(car.yaw);
+    // Art pass: farther back + higher, aimed up at 1.9 — the car stays
+    // fully in the lower frame while the top 40% shows sky, towers
+    // and sea instead of asphalt.
+    var dist = 9.5, height = 4.0;
+    _camDesired.set(
+      car.group.position.x - sy * dist,
+      height,
+      car.group.position.z - cy * dist
+    );
+    if (_carCamSnap) {
+      // First frame after entering: snap behind the car, never swoop
+      // across the city from the old on-foot position.
+      cam.position.copy(_camDesired);
+      _carCamSnap = false;
+    } else {
+      var k = 1 - Math.exp(-dt * 6);
+      cam.position.lerp(_camDesired, k);
+    }
+    _lookAt.set(
+      car.group.position.x + sy * 8,
+      1.9,
+      car.group.position.z + cy * 8
+    );
+    cam.lookAt(_lookAt);
+    // Slight roll into corners (visual only).
+    var speedF = Math.min(1, Math.abs(car.speed || 0) / 30);
+    cam.rotateZ(-(car.steer || 0) * speedF * 0.05);
+    // FOV widens with speed, +6 while nitro burns.
+    var nitro = car.nitroActive || (VR.State && VR.State.nitroActive);
+    var targetFov = 62 + speedF * 8 + (nitro ? 6 : 0);
+    fovNow += (targetFov - fovNow) * Math.min(1, dt * 5);
+    if (Math.abs(cam.fov - fovNow) > 0.05) {
+      cam.fov = fovNow;
+      cam.updateProjectionMatrix();
+    }
+  }
+
+  function enterCar(car) {
+    if (!car || !VR.Vehicles) return false;
+    if (VR.Vehicles.playerCar && VR.Vehicles.playerCar !== car) return false;
+    VR.State.inCar = true;
+    VR.State.car = car;
+    VR.State.nitroActive = false;
+    _carCamSnap = true; // chase camera snaps behind the car on entry
+    if (VR.Vehicles.enterCar) VR.Vehicles.enterCar(car);
+    group.visible = false;
+    return true;
+  }
+
+  function exitCar() {
+    if (!VR.State.inCar) return;
+    var car = VR.State.car;
+    VR.State.inCar = false;
+    VR.State.car = null;
+    VR.State.nitroActive = false; // never leak the nitro FOV on foot
+    if (VR.Vehicles && VR.Vehicles.exitCar) VR.Vehicles.exitCar();
+    if (car && car.group) {
+      // Step out to the driver's side.
+      pos.set(car.group.position.x + 2.2, 0, car.group.position.z);
+      yaw = car.group.rotation.y;
+    }
+    group.visible = true;
+  }
+
+  function update(dt) {
+    // Mouse look.
+    var mouse = VR.Input.consumeMouse();
+    if (VR.Input.pointerLocked) {
+      yaw -= mouse.dx * 0.0028;
+      pitch -= mouse.dy * 0.0028;
+      if (pitch > 0.55) pitch = 0.55;
+      // Art pass: never let the player stare straight down at the
+      // asphalt (-0.5 was a top-down view of their own feet).
+      if (pitch < -0.3) pitch = -0.3;
+    }
+
+    // F: enter / exit car (guarded — vehicles arrive in slice B).
+    if (VR.Input.justPressed('KeyF')) {
+      if (VR.State.inCar) {
+        exitCar();
+      } else if (VR.Vehicles && VR.Vehicles.nearestCar) {
+        var car = VR.Vehicles.nearestCar(pos.x, pos.z, 4);
+        if (car) enterCar(car);
       }
     }
-    if (best) damageEnemy(best.ref, w.damage);
-    return;
-  }
 
-  const key = AMMO_KEY[p.weapon];
-  if (p.ammo[key] <= 0) {
-    game.events.emit('dryfire', { weapon: p.weapon });
-    fireCooldown = 0.25;
-    return;
-  }
-  p.ammo[key] -= 1;
-
-  // heat + peds hear the shot
-  game.lastShotPos = _eye.clone();
-  game.lastShotAt = performance.now() / 1000;
-  game.events.emit('shot', { x: p.pos.x, z: p.pos.z });
-  game.events.emit('heat', { amount: 1, reason: 'shooting' });
-  if (game.audio && typeof game.audio.play === 'function') game.audio.play('gunshot');
-
-  const pellets = p.weapon === 3 ? 5 : 1;
-  let endPoint = null;
-  for (let i = 0; i < pellets; i += 1) {
-    const dir = _aim.clone();
-    if (pellets > 1) {
-      dir.x += (Math.random() - 0.5) * 0.12;
-      dir.y += (Math.random() - 0.5) * 0.12;
-      dir.z += (Math.random() - 0.5) * 0.12;
-      dir.normalize();
-    }
-    _ray.set(_eye, dir);
-    _ray.far = 120;
-    let best = null;
-    if (Array.isArray(game.enemies)) {
-      for (const e of game.enemies) {
-        if (!e || e.alive === false || !e.group) continue;
-        const hit = shootTarget(e.group, 'enemy', e);
-        if (hit && (!best || hit.dist < best.dist)) best = hit;
-      }
-    }
-    for (const car of game.cars) {
-      if (!car || !car.group || car === game.currentCar) continue;
-      const hit = shootTarget(car.group, 'car', car);
-      if (hit && (!best || hit.dist < best.dist)) best = hit;
-    }
-    const hitPoint = best ? best.point.clone() : _eye.clone().addScaledVector(dir, 120);
-    if (!endPoint || (best && best.dist < endPoint.dist)) endPoint = { point: hitPoint, dist: best ? best.dist : 120 };
-    if (best) {
-      if (best.kind === 'enemy') damageEnemy(best.ref, w.damage);
-      else damageCar(best.ref, w.damage);
-    }
-  }
-
-  // tracer + muzzle flash
-  if (gun) gun.getWorldPosition(_muzzle);
-  else _muzzle.copy(_eye);
-  const posAttr = tracer.geometry.attributes.position;
-  posAttr.setXYZ(0, _muzzle.x, _muzzle.y, _muzzle.z);
-  posAttr.setXYZ(1, endPoint.point.x, endPoint.point.y, endPoint.point.z);
-  posAttr.needsUpdate = true;
-  tracer.visible = true;
-  tracerLife = 0.07;
-  flash.position.copy(_muzzle);
-  flash.visible = true;
-  flashLife = 0.05;
-}
-
-function damageEnemy(enemy, dmg) {
-  if (!enemy || typeof enemy.health !== 'number') return;
-  enemy.health -= dmg;
-  game.events.emit('hit', { target: 'enemy', damage: dmg });
-  if (enemy.health <= 0 && enemy.alive !== false) {
-    enemy.alive = false;
-    if (enemy.group) enemy.group.visible = false;
-    game.events.emit('enemyDown', { enemy });
-  }
-}
-
-function damageCar(car, dmg) {
-  if (!car) return;
-  car.condition = Math.max(0, (car.condition ?? 100) - dmg * 0.4);
-  game.events.emit('hit', { target: 'car', damage: dmg });
-}
-
-function enterCar(car) {
-  if (!car || !game) return;
-  if (game.currentCar && game.currentCar !== car) exitCar();
-  car.isPlayer = true;
-  game.currentCar = car;
-  game.player.onFoot = false;
-  game.player.speed = 0;
-  game.player.pos.copy(car.pos);
-  game.player.pos.y = 0;
-  if (game.player.group) game.player.group.visible = false;
-  game.events.emit('enterCar', { type: car.type });
-}
-
-function exitCar() {
-  if (!game || !game.currentCar) return;
-  const car = game.currentCar;
-  car.isPlayer = false;
-  game.currentCar = null;
-  const p = game.player;
-  p.onFoot = true;
-  p.speed = 0;
-  // step out on the driver's side, just clear of the body
-  const rx = Math.cos(car.heading);
-  const rz = -Math.sin(car.heading);
-  p.pos.set(
-    THREE.MathUtils.clamp(car.pos.x + rx * 2.6, -CITY_HALF, CITY_HALF),
-    0,
-    THREE.MathUtils.clamp(car.pos.z + rz * 2.6, -CITY_HALF, BEACH_Z),
-  );
-  p.heading = car.heading;
-  if (p.group) {
-    p.group.visible = true;
-    p.group.position.copy(p.pos);
-    p.group.rotation.y = p.heading;
-  }
-}
-
-function takeDamage(n) {
-  if (!game || game.mode !== 'playing') return;
-  const p = game.player;
-  if (p.health <= 0) return;
-  const absorbed = Math.min(p.armour, n);
-  p.armour -= absorbed;
-  p.health = Math.max(0, p.health - (n - absorbed));
-  game.events.emit('damage', { amount: n, health: p.health, armour: p.armour });
-  if (p.health <= 0) {
-    p.health = 0;
-    game.setMode('wasted');
-  }
-}
-
-function update(dt) {
-  if (!game) return;
-  const p = game.player;
-  const keys = game.input.keys;
-
-  fireCooldown = Math.max(0, fireCooldown - dt);
-  reloadCooldown = Math.max(0, reloadCooldown - dt);
-
-  if (tracerLife > 0) {
-    tracerLife -= dt;
-    if (tracerLife <= 0) tracer.visible = false;
-  }
-  if (flashLife > 0) {
-    flashLife -= dt;
-    if (flashLife <= 0) flash.visible = false;
-  }
-
-  // --- driving: only F (exit) is handled here; cars move in vehicles.js ---
-  if (game.currentCar) {
-    p.pos.copy(game.currentCar.pos);
-    p.pos.y = 0;
-    if (keys.has('KeyF')) {
-      keys.delete('KeyF');
-      exitCar();
-    }
-    return;
-  }
-
-  // --- weapon switch / reload (edge-triggered) ---
-  if (keys.has('Digit1')) { keys.delete('Digit1'); switchWeapon(0); }
-  if (keys.has('Digit2')) { keys.delete('Digit2'); switchWeapon(1); }
-  if (keys.has('Digit3')) { keys.delete('Digit3'); switchWeapon(2); }
-  if (keys.has('Digit4')) { keys.delete('Digit4'); switchWeapon(3); }
-  if (keys.has('KeyR')) { keys.delete('KeyR'); reload(); }
-
-  // --- enter nearest car ---
-  if (keys.has('KeyF')) {
-    keys.delete('KeyF');
-    const car = nearestCar(p.pos, 4.5);
-    if (car) {
-      stealCar(car);
-      enterCar(car);
+    if (VR.State.inCar) {
+      // Driving: physics + input flags live in VR.Vehicles (called by
+      // main.js before this update); this file still owns the camera.
+      // Hands on the wheel while driving (the driver group is hidden
+      // inside the car, but the pose is kept correct regardless).
+      armL.rotation.x = -1.15; armR.rotation.x = -1.15;
+      armL.rotation.z = 0.25; armR.rotation.z = -0.25;
+      legL.rotation.x = -0.5; legR.rotation.x = -0.5;
+      speedNow = 0;
+      if (VR.State.car) updateCarCamera(dt, VR.State.car);
       return;
     }
-  }
 
-  // --- on-foot movement, relative to the camera ---
-  cameraForward();
-  _right.set(_fwd.z, 0, -_fwd.x);
-  _move.set(0, 0, 0);
-  if (keys.has('KeyW') || keys.has('ArrowUp')) _move.add(_fwd);
-  if (keys.has('KeyS') || keys.has('ArrowDown')) _move.sub(_fwd);
-  if (keys.has('KeyD') || keys.has('ArrowRight')) _move.add(_right);
-  if (keys.has('KeyA') || keys.has('ArrowLeft')) _move.sub(_right);
+    // WASD relative to facing.
+    var ix = 0, iz = 0;
+    var keys = VR.Input.keys;
+    if (keys.has('KeyW') || keys.has('ArrowUp')) iz -= 1;
+    if (keys.has('KeyS') || keys.has('ArrowDown')) iz += 1;
+    if (keys.has('KeyA') || keys.has('ArrowLeft')) ix -= 1;
+    if (keys.has('KeyD') || keys.has('ArrowRight')) ix += 1;
+    var moving = (ix !== 0 || iz !== 0);
+    var sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
+    var targetSpeed = moving ? (sprint ? PT.sprintSpeed : PT.walkSpeed) : 0;
+    speedNow += (targetSpeed - speedNow) * Math.min(1, dt * 10);
 
-  const moving = _move.lengthSq() > 0.001;
-  const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
-  const targetSpeed = moving ? (sprint ? SPRINT_SPEED : WALK_SPEED) : 0;
-  p.speed += (targetSpeed - p.speed) * Math.min(1, dt * 10);
-  if (Math.abs(p.speed) < 0.05) p.speed = 0;
-
-  if (moving && p.speed > 0.1) {
-    _move.normalize();
-    p.pos.addScaledVector(_move, p.speed * dt);
-    p.heading = Math.atan2(_move.x, _move.z);
-    walkPhase += p.speed * dt * 2.2;
-  }
-
-  // --- jump ---
-  if (keys.has('Space') && grounded) {
-    vy = JUMP_VELOCITY;
-    grounded = false;
-  }
-  if (!grounded) {
-    vy -= GRAVITY * dt;
-    p.pos.y += vy * dt;
-    if (p.pos.y <= 0) {
-      p.pos.y = 0;
-      vy = 0;
-      grounded = true;
+    if (moving) {
+      var len = Math.sqrt(ix * ix + iz * iz);
+      ix /= len; iz /= len;
+      var cy = Math.cos(yaw), sy = Math.sin(yaw);
+      // Forward is (sin yaw, cos yaw); right is (cos yaw, -sin yaw).
+      var mx = (sy * -iz) + (cy * ix);
+      var mz = (cy * -iz) + (-sy * ix);
+      var step = speedNow * dt;
+      var nx = pos.x + mx * step;
+      var nz = pos.z + mz * step;
+      // Axis-separated so the player slides along walls instead of sticking.
+      if (!blockedAt(nx, pos.z)) pos.x = nx;
+      if (!blockedAt(pos.x, nz)) pos.z = nz;
+      walkPhase += dt * speedNow * 1.9;
     }
+
+    // Jump + gravity.
+    if (grounded && VR.Input.justPressed('Space')) {
+      vy = PT.jumpSpeed;
+      grounded = false;
+    }
+    if (!grounded) {
+      vy -= PT.gravity * dt;
+      pos.y += vy * dt;
+      if (pos.y <= 0) { pos.y = 0; vy = 0; grounded = true; }
+    }
+
+    // Pose the character.
+    group.position.copy(pos);
+    group.rotation.y = yaw;
+    var swing = Math.sin(walkPhase) * 0.65 * Math.min(1, speedNow / PT.walkSpeed);
+    armL.rotation.x = swing;
+    armR.rotation.x = -swing;
+    legL.rotation.x = -swing;
+    legR.rotation.x = swing;
+    // Idle breathing when standing still (keep the z-flattening).
+    var breathe = moving ? 0 : Math.sin(performance.now() * 0.002) * 0.02;
+    torso.scale.set(1, 1 + breathe, 0.62);
+    // Slight forward lean while sprinting.
+    group.rotation.x = sprint && moving ? 0.08 : 0;
+
+    updateCamera(dt);
   }
 
-  // --- stay inside the city (beach edge, not the ocean) ---
-  p.pos.x = THREE.MathUtils.clamp(p.pos.x, -CITY_HALF, CITY_HALF);
-  p.pos.z = THREE.MathUtils.clamp(p.pos.z, -CITY_HALF, BEACH_Z);
+  VR.Player = {
+    pos: pos,
+    group: group,
+    get yaw() { return yaw; },
+    set yaw(v) { yaw = v; },
+    get pitch() { return pitch; },
+    health: 100,
+    armor: 0,
+    get speed() { return speedNow; },
+    get grounded() { return grounded; },
+    enterCar: enterCar,
+    exitCar: exitCar,
+    update: update,
+    updateCamera: updateCamera
+  };
 
-  // --- shooting ---
-  const clicked = game.input.clicked;
-  game.input.clicked = false;
-  const w = WEAPONS[p.weapon];
-  if (w.auto ? mouseHeld : clicked) fire();
-
-  // --- mesh sync + procedural walk swing ---
-  if (p.group) {
-    p.group.position.copy(p.pos);
-    p.group.rotation.y = p.heading;
-    const swing = moving ? Math.sin(walkPhase) * 0.65 * Math.min(1, p.speed / WALK_SPEED) : 0;
-    if (armL) armL.rotation.x = swing;
-    if (armR) armR.rotation.x = -swing;
-    if (legL) legL.rotation.x = -swing;
-    if (legR) legR.rotation.x = swing;
-    // right arm aims forward while shooting
-    if (mouseHeld && p.weapon > 0 && armR) armR.rotation.x = -1.2;
-  }
-}
-
-export { enterCar, exitCar, takeDamage };
-export default { init, update, enterCar, exitCar, takeDamage };
+})(window.VR = window.VR || {});

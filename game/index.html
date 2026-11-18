@@ -1,55 +1,145 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SOLARA BAY — open-world crime</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e2a4a'/%3E%3Ccircle cx='16' cy='13' r='7' fill='%23ffc93c'/%3E%3Crect x='5' y='21' width='22' height='3' rx='1.5' fill='%232ec4b6'/%3E%3Crect x='8' y='26' width='16' height='2' rx='1' fill='%232ec4b6' opacity='.6'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="./src/hud.css">
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js" } }
-</script>
+<title>VANDARA RUSH — Vandara Bay</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="src/hud.css">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1e2a52; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #1a2233;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  /* Thin cinematic vignette over the canvas (no external assets). */
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center,
+      rgba(0,0,0,0) 58%, rgba(0,0,0,0.28) 100%);
+  }
+  #title-card {
+    position: fixed; left: 50%; top: 8%; transform: translateX(-50%);
+    text-align: center; color: #ffe9c9; pointer-events: none;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.7);
+  }
+  #title-card h1 {
+    margin: 0; font-size: 52px; letter-spacing: 6px; font-weight: 800;
+  }
+  #title-card p {
+    margin: 6px 0 0; font-size: 16px; letter-spacing: 3px;
+    color: #ffd27a;
+  }
+  #title-card .click {
+    margin-top: 14px; font-size: 14px; letter-spacing: 2px; color: #fff;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="SOLARA BAY: open-world crime game. Walk and drive around Solara Bay, take missions, lose the cops."></canvas>
-<p id="status" role="status" aria-live="polite"></p>
-<div id="hud">
-  <div id="top-left">
-    <div id="minimap-wrap">
-      <div id="minimap-header">
-        <span class="mm-title">SOLARA BAY</span>
-        <span id="district">Marina Verde</span>
-        <span class="mm-compass">N</span>
-      </div>
-      <canvas id="minimap" width="200" height="200"></canvas>
-      <div id="respect-bar"></div>
-    </div>
-    <div id="mission-card"></div>
-    <div id="scanner-feed"></div>
-  </div>
-  <div id="top-right">
-    <div id="money">$0</div>
-    <div id="wanted-stars"></div>
-    <div id="clock">Day 1 18:52</div>
-  </div>
-  <div id="weapon-slots"></div>
-  <div id="dialogue-card"></div>
-  <div id="bottom-right">
-    <div id="speedo"></div>
-    <div id="health-armour"></div>
-  </div>
-  <div id="radio-bar"></div>
-  <div id="combo-popup"></div>
-  <div id="damage-vignette"></div>
-  <div id="controls-hint"></div>
+<div id="vignette"></div>
+<div id="title-card">
+  <h1>VANDARA RUSH</h1>
+  <p>VANDARA BAY &middot; GOLDEN HOUR</p>
+  <div class="click">CLICK TO START &mdash; WASD WALK &middot; SHIFT RUN &middot; SPACE JUMP</div>
 </div>
-<div id="title-screen"></div>
-<div id="pause-menu"></div>
-<script type="module" src="./src/main.js"></script>
+
+<!-- HUD (Slice C, DESIGN.md §6). All ids are contractual. -->
+<div id="hud">
+  <div id="mission-box" class="panel">
+    <div id="mission-title"></div>
+    <div id="mission-objective"></div>
+  </div>
+  <div id="mission-toast"></div>
+
+  <div id="top-right">
+    <div id="money" class="panel"></div>
+    <div id="clock-row" class="panel"><span id="weather-icon"></span><span id="clock"></span></div>
+    <div id="wanted-stars" class="panel"></div>
+  </div>
+
+  <div id="minimap-wrap">
+    <div id="minimap-frame">
+      <div id="district-label"></div>
+      <canvas id="minimap-canvas" width="190" height="190"></canvas>
+    </div>
+    <div id="vitals">
+      <div class="bar-label"><span>HEALTH</span></div>
+      <div class="bar-track"><div class="bar-fill" id="health-fill"></div></div>
+      <div class="bar-label"><span>ARMOR</span></div>
+      <div class="bar-track"><div class="bar-fill" id="armor-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="bottom-right">
+    <div id="radio-capsule"></div>
+    <div id="speedo" class="panel hidden">
+      <div id="speedo-bars">
+        <div class="bar-label"><span>NITRO</span><span>SHIFT</span></div>
+        <div class="bar-track"><div class="bar-fill" id="nitro-bar"></div></div>
+        <div class="bar-label"><span>CONDITION</span></div>
+        <div class="bar-track"><div class="bar-fill" id="condition-bar"></div></div>
+      </div>
+      <div><span id="speed-value">0</span> <span id="speed-unit">KM/H</span></div>
+      <div id="gear">N</div>
+    </div>
+    <div id="weapon-slot" class="panel">
+      <div id="weapon-icon"></div>
+      <div id="weapon-meta">
+        <span id="weapon-name"></span>
+        <span id="weapon-ammo"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="dialogue-box" class="panel">
+    <div id="dialogue-portrait"></div>
+    <div id="dialogue-body">
+      <div><span id="dialogue-name"></span><span id="dialogue-role"></span></div>
+      <div id="dialogue-text"></div>
+    </div>
+  </div>
+
+  <div id="crosshair"><span class="dot"></span></div>
+  <div id="controls-hint">WASD WALK &middot; SHIFT RUN &middot; SPACE JUMP &middot; F CAR &middot; Q RADIO &middot; P PAUSE</div>
+</div>
+<script>
+  // Hide the title card once play starts (menus.js takes over in slice C).
+  window.VR = window.VR || {};
+  document.addEventListener('click', function () {
+    if (window.VR.State && window.VR.State.mode === 'playing') {
+      var el = document.getElementById('title-card');
+      if (el) el.style.display = 'none';
+    }
+  });
+</script>
+<!-- Classic scripts, in DESIGN.md §3 order. Files from later slices
+     (audio, vehicles, traffic, ...) do not exist yet: a 404 for one of
+     them does not stop the browser from running the rest, and main.js
+     guards every optional module with `if (VR.X)` before using it. -->
+<script src="vendor/three.min.js"></script>
+<script src="src/config.js"></script>
+<script src="src/input.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/world.js"></script>
+<script src="src/roads.js"></script>
+<script src="src/buildings.js"></script>
+<script src="src/vehicles.js"></script>
+<script src="src/traffic.js"></script>
+<script src="src/pedestrians.js"></script>
+<script src="src/player.js"></script>
+<script src="src/police.js"></script>
+<script src="src/combat.js"></script>
+<script src="src/missions.js"></script>
+<script src="src/economy.js"></script>
+<script src="src/save.js"></script>
+<script src="src/effects.js"></script>
+<script src="src/hud.js"></script>
+<script src="src/minimap.js"></script>
+<script src="src/menus.js"></script>
+<script src="src/shots.js"></script>
+<script src="src/main.js"></script>
 </body>
 </html>

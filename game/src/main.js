@@ -1,343 +1,149 @@
-// PUERTO MIRA — boot, game object, input, camera, main loop. Coordinator's spine.
-// ?shot=chase|title|foot|roam&seed=1 stages a screenshot scene (see shots.js).
-import * as THREE from 'three';
-import { CHARACTERS } from './config.js';
-import world from './world.js';
-import signs from './signs.js';
-import player from './player.js';
-import vehicles from './vehicles.js';
-import police from './police.js';
-import missions from './missions.js';
-import activities from './activities.js';
-import hud from './hud.js';
-import audio from './audio.js';
-import save from './save.js';
-import { stageShot } from './shots.js';
+// main.js — boot + game loop for VANDARA RUSH.
+// Fixed physics timestep (1/60, accumulator capped at 5 steps, dt
+// clamped). Every module beyond slice A is optional: each is guarded
+// with `if (VR.X)` so the game boots with slice A files alone
+// (on-foot in the city, no cars / police / missions / HUD yet).
+// CAMERA: main.js only runs the title orbit. All gameplay cameras
+// (on-foot + in-car chase) are owned by player.js.
+(function (VR) {
+  'use strict';
 
-const MAX_DT = 0.05;
-const params = new URLSearchParams(window.location.search);
-const shotName = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : 1;
-
-const canvas = document.getElementById('game');
-const statusEl = document.getElementById('status');
-
-// --- tiny event bus: systems emit, hud listens ---
-const listeners = new Map();
-function onEvent(name, fn) {
-  if (!listeners.has(name)) listeners.set(name, []);
-  listeners.get(name).push(fn);
-}
-function emitEvent(name, data) {
-  const fns = listeners.get(name);
-  if (fns) for (const fn of fns) fn(data);
-}
-
-// --- the game object (exact shape from DESIGN.md) ---
-const game = {
-  scene: new THREE.Scene(),
-  camera: new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 2000),
-  renderer: null,
-  time: { day: 1, minutes: 18 * 60 + 52, rate: 1 },
-  money: 0,
-  respect: 0,
-  respectLevel: 1,
-  wanted: 0,
-  mode: 'title',
-  shot: shotName,
-  player: {
-    mesh: null, group: null,
-    pos: new THREE.Vector3(0, 0, 60),
-    heading: 0, speed: 0, onFoot: true,
-    health: 100, armour: 0, weapon: 1,
+  // ---------- shared game state (DESIGN.md §5) ----------
+  VR.State = {
+    mode: 'title',        // 'title' | 'playing' | 'paused' | 'cutscene'
+    mission: 0,           // current mission index (0..7)
+    money: 28400, respect: 0,
+    wanted: 0,            // 0..5
+    health: 100, armor: 0,
+    timeMinutes: 18 * 60 + 52, day: 1,
+    inCar: false, car: null,
+    weapon: 0,            // 0 fists, 1 pistol, 2 SMG, 3 shotgun
     ammo: { pistol: 48, smg: 120, shotgun: 18 },
-  },
-  currentCar: null,
-  cars: [],
-  police: { units: [], helicopter: null },
-  missions: { current: 0, stage: 0, state: 'idle', objective: '', target: null },
-  input: { keys: new Set(), mouseDX: 0, mouseDY: 0, clicked: false },
-  hud: null, audio: null, save: null, world: null,
-  events: { on: onEvent, emit: emitEvent },
-  setMode,
-  addMoney,
-  addRespect,
-  startNewGame,
-  continueGame,
-  togglePause,
-  quitToTitle,
-  respawn,
-};
+    night: false
+  };
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
-game.renderer = renderer;
+  var renderer = VR.World.renderer;
+  var scene = VR.World.scene;
+  var camera = VR.World.camera;
 
-window.addEventListener('resize', () => {
-  game.camera.aspect = window.innerWidth / window.innerHeight;
-  game.camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+  // Title screen: click the canvas to start playing (also the gesture
+  // that lets later slices init audio + pointer lock).
+  renderer.domElement.addEventListener('click', function () {
+    if (VR.State.mode === 'title') {
+      VR.State.mode = 'playing';
+      if (VR.Menus) VR.Menus.hideAll();
+      VR.Input.requestLock(renderer.domElement);
+      if (VR.Audio && VR.Audio.init) VR.Audio.init();
+    } else if (VR.State.mode === 'playing' && !VR.Input.pointerLocked) {
+      VR.Input.requestLock(renderer.domElement);
+    }
+  });
 
-// --- modes ---
-function setMode(mode) {
-  game.mode = mode;
-  emitEvent('mode', { mode });
-  if (mode === 'playing') statusEl.textContent = 'Playing Puerto Mira.';
-  if (mode === 'paused') statusEl.textContent = 'Paused.';
-  if (mode === 'busted') statusEl.textContent = 'Busted by the PMPD.';
-  if (mode === 'wasted') statusEl.textContent = 'Wasted.';
-}
-
-function addMoney(amount, reason) {
-  game.money = Math.max(0, game.money + amount);
-  emitEvent('money', { amount, reason, total: game.money });
-}
-
-function addRespect(amount) {
-  game.respect += amount;
-  const level = Math.min(5, 1 + Math.floor(game.respect / 500));
-  if (level !== game.respectLevel) {
-    game.respectLevel = level;
-    emitEvent('respect', { level, respect: game.respect });
+  // P toggles pause (menus arrive in slice C; without them, pause just
+  // freezes the simulation and releases the pointer).
+  function togglePause() {
+    if (VR.State.mode === 'playing') {
+      VR.State.mode = 'paused';
+      VR.Input.exitLock();
+      if (VR.Menus) VR.Menus.showPause();
+    } else if (VR.State.mode === 'paused') {
+      VR.State.mode = 'playing';
+      if (VR.Menus) VR.Menus.hideAll();
+      VR.Input.requestLock(renderer.domElement);
+    }
   }
-}
 
-function startNewGame() {
-  game.money = 0;
-  game.respect = 0;
-  game.respectLevel = 1;
-  game.time.day = 1;
-  game.time.minutes = 18 * 60 + 52;
-  game.player.health = 100;
-  game.player.armour = 0;
-  game.player.pos.set(0, 0, 60);
-  game.player.heading = 0;
-  game.player.onFoot = true;
-  police.clearWanted();
-  missions.startMission(0);
-  setMode('playing');
-  canvas.requestPointerLock?.();
-}
-
-function continueGame() {
-  const data = save.loadGame();
-  if (!data) { startNewGame(); return; }
-  game.money = data.money ?? 0;
-  game.respect = data.respect ?? 0;
-  game.respectLevel = data.respectLevel ?? 1;
-  game.time.day = data.day ?? 1;
-  game.time.minutes = data.minutes ?? 18 * 60 + 52;
-  game.player.pos.set(data.x ?? 0, 0, data.z ?? 60);
-  game.player.health = 100;
-  game.player.armour = data.armour ?? 0;
-  missions.startMission(data.mission ?? 0);
-  setMode('playing');
-  canvas.requestPointerLock?.();
-}
-
-function togglePause() {
-  if (game.mode === 'playing') setMode('paused');
-  else if (game.mode === 'paused') setMode('playing');
-}
-
-function quitToTitle() {
-  if (game.currentCar) player.exitCar();
-  setMode('title');
-  document.exitPointerLock?.();
-}
-
-function respawn() {
-  // After busted/wasted: lose cash, wake at the hospital, heat gone.
-  addMoney(-Math.min(300, game.money), 'Hospital bill');
-  game.player.health = 100;
-  game.player.armour = 0;
-  game.player.pos.set(-60, 0, -60);
-  game.player.heading = 0;
-  game.player.onFoot = true;
-  if (game.currentCar) player.exitCar();
-  police.clearWanted();
-  setMode('playing');
-}
-
-// --- input ---
-window.addEventListener('keydown', (e) => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-  if (e.repeat) return;
-  game.input.keys.add(e.code);
-  if (e.code === 'Escape') {
-    if (game.mode === 'playing' || game.mode === 'paused') togglePause();
+  // ---------- cinematic title orbit (no allocations) ----------
+  var _orbitTarget = new THREE.Vector3(0, 0, 0);
+  var orbitAngle = 0.6;
+  function updateTitleCamera(dt) {
+    orbitAngle += dt * 0.03;
+    var r = 190;
+    camera.position.set(
+      Math.sin(orbitAngle) * r,
+      95,
+      Math.cos(orbitAngle) * r
+    );
+    camera.lookAt(_orbitTarget);
+    if (Math.abs(camera.fov - 55) > 0.05) {
+      camera.fov = 55;
+      camera.updateProjectionMatrix();
+    }
   }
-  if (e.code === 'KeyM' && game.mode === 'playing') emitEvent('map', {});
-  if (e.code === 'KeyV' && game.mode === 'playing') {
-    cameraMode = cameraMode === 'chase' ? 'classic' : 'chase';
+
+  // ---------- fixed-timestep loop ----------
+  var STEP = 1 / 60;
+  var last = performance.now();
+  var acc = 0;
+  var booted = false;
+
+  function update(dt) {
+    if (VR.State.mode === 'title') {
+      updateTitleCamera(dt);
+      VR.World.update(dt, 0, 0);
+      if (VR.Buildings && VR.Buildings.setNightness) VR.Buildings.setNightness(VR.World.nightness);
+      return;
+    }
+    if (VR.State.mode === 'paused') return;
+
+    // Driving: physics + input flags live in VR.Vehicles (slice B).
+    // VR.Player.update runs in BOTH modes: on foot it moves Damian,
+    // in a car it runs the chase camera (player.js owns the camera).
+    if (VR.State.inCar && VR.Vehicles) VR.Vehicles.update(dt);
+    if (VR.Player) VR.Player.update(dt);
+
+    if (VR.Traffic) VR.Traffic.update(dt);
+    if (VR.Peds) VR.Peds.update(dt);
+    if (VR.Police) VR.Police.update(dt);
+    if (VR.Combat) VR.Combat.update(dt);
+    if (VR.Missions) VR.Missions.update(dt);
+    if (VR.Effects) VR.Effects.update(dt);
+    if (VR.HUD) VR.HUD.update(dt);
+    if (VR.Minimap) VR.Minimap.update(dt);
+
+    // Sun shadow camera follows the player — or the car while driving.
+    var fx = VR.Player.pos.x, fz = VR.Player.pos.z;
+    if (VR.State.inCar && VR.State.car && VR.State.car.group) {
+      fx = VR.State.car.group.position.x;
+      fz = VR.State.car.group.position.z;
+    }
+    VR.World.update(dt, fx, fz);
+    if (VR.Buildings && VR.Buildings.setNightness) VR.Buildings.setNightness(VR.World.nightness);
+
+    // Pause key (edge-triggered).
+    if (VR.Input.justPressed('KeyP')) togglePause();
+
+    VR.Input.endFrame();
   }
-});
-window.addEventListener('keyup', (e) => game.input.keys.delete(e.code));
-canvas.addEventListener('mousedown', (e) => {
-  if (game.mode === 'playing') {
-    if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
-    game.input.clicked = true;
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.1) dt = 0.1; // clamp hitches
+    if (dt < 0) dt = 0;
+    acc += dt;
+    var steps = 0;
+    while (acc >= STEP && steps < 5) {
+      update(STEP);
+      acc -= STEP;
+      steps++;
+    }
+    if (steps === 5) acc = 0; // drop backlog rather than spiral
+    renderer.render(scene, camera);
+    if (!booted) {
+      booted = true;
+      window.__gameReady = true;
+    }
   }
-});
-document.addEventListener('mousemove', (e) => {
-  if (document.pointerLockElement === canvas) {
-    game.input.mouseDX += e.movementX;
-    game.input.mouseDY += e.movementY;
-  }
-});
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && game.mode === 'playing') setMode('paused');
-});
 
-// --- camera ---
-let cameraMode = 'chase';
-let camYaw = 0;
-let camPitch = 0.32;
-let camDistance = 9;
-// Cinematic chase (v3): the camera is a spring-damper, not a rigid mount —
-// it trails the target with a soft lag and settles instead of snapping.
-// camRoll is the cornering lean, smoothed toward the car's visual steer.
-let camVel = new THREE.Vector3();
-let camRoll = 0;
-const _camDelta = new THREE.Vector3();
-
-function updateCamera(dt) {
-  const cam = game.camera;
-  if (game.mode === 'title') {
-    const t = performance.now() / 1000;
-    const r = 180;
-    cam.position.set(Math.sin(t * 0.02) * r, 55, Math.cos(t * 0.02) * r);
-    cam.lookAt(0, 10, 0);
-    cam.fov = 55;
-    cam.updateProjectionMatrix();
-    return;
-  }
-  camYaw -= game.input.mouseDX * 0.0028;
-  camPitch = Math.max(0.08, Math.min(1.1, camPitch + game.input.mouseDY * 0.0022));
-  game.input.mouseDX = 0;
-  game.input.mouseDY = 0;
-
-  const focus = game.currentCar ? game.currentCar.group.position : game.player.pos;
-  const heading = game.currentCar ? game.currentCar.heading : game.player.heading;
-  if (game.currentCar) camYaw = heading + Math.PI;
-  const dist = cameraMode === 'classic' ? 13 : camDistance;
-  const height = cameraMode === 'classic' ? 7 : 4.2;
-  const target = new THREE.Vector3(
-    focus.x + Math.sin(camYaw) * dist,
-    focus.y + height + Math.sin(camPitch) * 4,
-    focus.z + Math.cos(camYaw) * dist,
-  );
-  const speed = game.currentCar ? Math.abs(game.currentCar.speed) : Math.abs(game.player.speed);
-  // Snap instead of springing when far off (mode switch, first frame, or any
-  // clock glitch): a slow chase from the title orbit would leave the camera
-  // mid-flight when a screenshot is taken.
-  if (cam.position.distanceTo(target) > 60) {
-    cam.position.copy(target);
-    camVel.set(0, 0, 0);
-  } else {
-    // Spring-damper chase: accelerate toward the target, damped just under
-    // critical so the camera trails with a soft lag and settles without
-    // oscillation. Semi-implicit Euler, stable for dt <= MAX_DT (0.05).
-    const k = 42;
-    const c = 2 * Math.sqrt(k) * 0.85;
-    _camDelta.subVectors(target, cam.position);
-    camVel.addScaledVector(_camDelta, k * dt);
-    camVel.multiplyScalar(Math.exp(-c * dt));
-    cam.position.addScaledVector(camVel, dt);
-  }
-  cam.lookAt(focus.x, focus.y + 2, focus.z);
-  // Cornering roll: lean into the turn, proportional to the car's already
-  // smoothed visual steering (max ~1.3 deg). On foot the camera stays level.
-  const steerVis = game.currentCar ? (game.currentCar.steerVisual ?? 0) : 0;
-  const targetRoll = -steerVis * 0.055;
-  camRoll += (targetRoll - camRoll) * Math.min(1, dt * 6);
-  cam.rotateZ(camRoll);
-  // Nitro widens the FOV (+6 deg) on top of the speed widening. The nitro
-  // signal is the same state vehicles.js uses (Shift + nitro car + fuel +
-  // rolling) — read here, never duplicated into new state.
-  const car = game.currentCar;
-  const nitroOn = !!car && !!car.nitro && (car.nitroFuel ?? 0) > 0
-    && (game.input.keys.has('ShiftLeft') || game.input.keys.has('ShiftRight'))
-    && Math.abs(car.speed) > 5;
-  const wantFov = 62 + Math.min(14, speed * 0.35) + (nitroOn ? 6 : 0);
-  cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 3);
-  cam.updateProjectionMatrix();
-}
-
-// --- boot systems ---
-world.init(game);
-signs.init(game);
-player.init(game);
-vehicles.init(game);
-police.init(game);
-missions.init(game);
-activities.init(game);
-hud.init(game);
-audio.init(game);
-save.init(game);
-game.hud = hud;
-game.audio = audio;
-game.save = save;
-
-// Bridge: player.js / vehicles.js report crimes as 'heat' events (they cannot call the
-// police module directly); the police system consumes them here.
-game.events.on('heat', (e) => police.addHeat(e && e.amount ? e.amount : 1));
-
-// Debug/automation handle (used by the headless play-test; harmless in play).
-window.__game = game;
-
-if (shotName) {
-  stageShot(game, shotName, seed);
-  if (shotName === 'title') setMode('title');
-  else setMode('playing');
-} else {
-  setMode('title');
-}
-
-// --- main loop ---
-let last = performance.now();
-let firstFrame = true;
-
-function frame(now) {
+  // Apply the starting time of day, then go.
+  VR.World.setTimeOfDay(VR.State.timeMinutes);
+  if (VR.Menus) VR.Menus.showTitle();
   requestAnimationFrame(frame);
-  // Clamp dt to [0, MAX_DT]: in headless Chromium the rAF timestamp can run
-  // backwards vs performance.now(), and a negative dt turns the camera lerp
-  // factor (1 - 0.0001^dt) hugely negative, flinging the camera billions of
-  // metres out (seen 18 Nov: camPos ~2e10, black screen, 1 render call).
-  const dt = Math.min(Math.max((now - last) / 1000, 0), MAX_DT);
-  last = now;
 
-  if (game.mode === 'playing') {
-    player.update(dt);
-    vehicles.update(dt);
-    police.update(dt);
-    missions.update(dt);
-    activities.update(dt);
-    world.update(dt);
-    signs.update(dt);
-  } else if (game.mode === 'title') {
-    world.update(dt);
-    signs.update(dt);
-    vehicles.update(dt);
-  }
-  hud.update(dt);
-  audio.update(dt);
-  updateCamera(dt);
+  VR.Main = {
+    togglePause: togglePause
+  };
 
-  renderer.render(game.scene, game.camera);
-
-  if (firstFrame) {
-    firstFrame = false;
-    window.__gameReady = true;
-  }
-}
-
-statusEl.textContent = 'PUERTO MIRA. Click to start.';
-requestAnimationFrame(frame);
+})(window.VR = window.VR || {});

@@ -1,87 +1,168 @@
-// PUERTO MIRA — shared data. Written by the coordinator. Workers import this, never redefine it.
-export const CITY = { block: 60, street: 14, half: 240, beachZ: 200, oceanZ: 215 };
+// config.js — all shared data for VANDARA RUSH: palette, districts,
+// weapons, vehicles, missions, radio, world constants. No logic here,
+// just data every other module reads from VR.Config.
+(function (VR) {
+  'use strict';
 
-export const DISTRICTS = [
-  { name: 'Old Town', x0: -240, z0: -240, x1: 0, z1: 0 },
-  { name: 'Harbor Heights', x0: 0, z0: -240, x1: 240, z1: 0 },
-  { name: 'Coral Row', x0: -240, z0: 0, x1: 0, z1: 120 },
-  { name: 'Palm Court', x0: 0, z0: 0, x1: 240, z1: 120 },
-  { name: 'Marina Verde', x0: -240, z0: 120, x1: 0, z1: 240 },
-  { name: 'The Docks', x0: 0, z0: 120, x1: 240, z1: 240 },
-];
+  VR.Config = {
 
-export const PALETTE = {
-  skyTop: 0x1e2a52, skyHorizon: 0xff9a5c, sun: 0xffd27a, fog: 0xe8937c,
-  road: 0x2e3138, sidewalk: 0x6b6f78, sand: 0xe8d5a3, ocean: 0x1e6f8e,
-  building: [0xffb3a0, 0xffd9a0, 0xa0e0d0, 0xa0c8ff, 0xffe8c8, 0xd0a0ff, 0x90d8b0, 0xffc0c0],
-};
+    // ---- World constants (single source of truth) ----
+    WORLD_SIZE: 480,          // city is 480 x 480 units
+    WORLD_HALF: 240,
+    STREET_STEP: 60,          // grid step between streets
+    STREET_MIN: -210,         // first street coordinate
+    STREET_MAX: 210,          // last street coordinate
+    ROAD_HALF_WIDTH: 6,       // half-width of a normal 2-lane street
+    BOULEVARD_HALF_WIDTH: 11, // coastal boulevard x = -210, 4 lanes
+    SEA_LINE: -240,           // sea begins west of this x
+    BOARDWALK_X: -228,        // boardwalk strip centre x
 
-export const CARS = {
-  zephyr: { name: 'Zephyr R', accel: 26, topSpeed: 62, brake: 40, steer: 0.55, color: 0xff2e63, nitro: true },
-  corsair: { name: 'Corsair', accel: 20, topSpeed: 48, brake: 34, steer: 0.5, color: 0x2ec4ff, nitro: false },
-  vela: { name: 'Vela S', accel: 22, topSpeed: 54, brake: 36, steer: 0.52, color: 0xffc93c, nitro: false },
-  police: { name: 'SBPD Interceptor', accel: 24, topSpeed: 58, brake: 38, steer: 0.55, color: 0x181818, nitro: false },
-  traffic: [0xcccccc, 0x8899aa, 0xaa6655, 0x55aa88, 0xdddddd, 0x7799cc],
-};
+    // ---- Controlled palette (DESIGN.md §2 — never invent colours) ----
+    PALETTE: {
+      skyHorizon: 0xff9e64,   // golden-hour peach at horizon
+      skyZenith: 0x2b4170,    // dusk blue at zenith
+      skyNightTop: 0x0f172a,  // night deep blue
+      skyNightHorizon: 0x2a1b4a, // night dark purple
+      fogHorizon: 0xff9e64,   // fog tinted to match horizon
+      sun: 0xffd27a,
+      asphalt: 0x383c46,      // warm grey
+      sidewalk: 0x8a8f98,     // concrete
+      sea: 0x1f8f8a,           // turquoise
+      sand: 0xe8d5a8,
+      boardwalk: 0x8a5a33,
+      terracotta: 0xc96f4a,
+      sandCream: 0xe8d5a8,
+      mint: 0x7fc8a9,
+      teal: 0x2e8b8b,
+      glassTeal: 0x3fa7c4,
+      policeBlack: 0x111318,
+      policeWhite: 0xf2f2f2,
+      money: 0x3ddc84,
+      wanted: 0xffd23f,
+      health: 0xff4d4d,
+      armor: 0x4da6ff,
+      nitro: 0x37e0ff,
+      neonCyan: 0x37e0ff,
+      neonMagenta: 0xff4da6,
+      neonYellow: 0xffd23f,
+      windowWarm: 0xffc46b,
+      palmTrunk: 0x7a5230,
+      palmLeaf: 0x2f9e5f,
+      containerRed: 0xc0392b,
+      containerBlue: 0x2471a3,
+      containerGreen: 0x1e8449,
+      containerYellow: 0xd4ac0d,
+      containerOrange: 0xca6f1e,
+      damianShirt: 0x2e86c1,
+      damianPants: 0x2c3e50,
+      damianSkin: 0xc98d64,
+      damianHair: 0x1a1a1a
+    },
 
-export const WEAPONS = [
-  { id: 0, name: 'Fists', damage: 12, rate: 0.45, ammo: Infinity, auto: false },
-  { id: 1, name: 'Pistol', damage: 25, rate: 0.3, ammo: 48, auto: false },
-  { id: 2, name: 'SMG', damage: 14, rate: 0.09, ammo: 120, auto: true },
-  { id: 3, name: 'Shotgun', damage: 60, rate: 0.9, ammo: 18, auto: false },
-];
+    // ---- Districts (bounds are [minX, maxX, minZ, maxZ]) ----
+    DISTRICTS: [
+      { name: 'Golden Pier',        bounds: [-240, -150, -240, 240] },
+      { name: 'Industrial Dockyard', bounds: [150, 240, -240, 240] },
+      { name: 'Pasar Lentera',      bounds: [-150, 150, 90, 240] },
+      { name: 'Highrise Plaza',     bounds: [-150, 150, -240, 90] }
+    ],
 
-export const POLICE_UNITS = ['ORCA-12', 'TIDE-07', 'REEF-22', 'SURGE-31', 'MARLIN-09', 'CORAL-17'];
-export const HELI_NAME = 'HAWK-2';
+    // ---- Weapons (data-driven; VR.Combat reads this) ----
+    // fireInterval: seconds between shots. spread: radians. ammo: reserve.
+    WEAPONS: [
+      { id: 0, name: 'Fists',   damage: 12,  fireInterval: 0.45, magSize: 0,   ammo: 0,   spread: 0,     range: 2.2,  auto: false },
+      { id: 1, name: 'Pistol',  damage: 22,  fireInterval: 0.28, magSize: 12,  ammo: 48,  spread: 0.012, range: 60,   auto: false },
+      { id: 2, name: 'SMG',     damage: 14,  fireInterval: 0.09, magSize: 30,  ammo: 120, spread: 0.045, range: 45,   auto: true },
+      { id: 3, name: 'Shotgun', damage: 11,  fireInterval: 0.85, magSize: 6,   ammo: 18,  spread: 0.09,  range: 22,   auto: false, pellets: 8 }
+    ],
 
-export const RADIO = [
-  { station: 'ONDA 96.5 FM', genre: 'Onda Sunset', tracks: ['Golden Static — Marina Verde', 'Palm Light — Isla Verde', 'Sunset Run — Costa Azul'] },
-  { station: 'BRISA 88.3', genre: 'Brisa Chill', tracks: ['Slow Tide — Café Brisa', 'Salt Air — Ana Mar', 'Driftwood — Los Faros'] },
-  { station: 'CORAL 101.7', genre: 'Coral Nights', tracks: ['Neon Reef — Coral Ghosts', 'Midnight Harbor — Vela Negra', 'Afterglow — The Miramars'] },
-];
+    // ---- Vehicles (7 types) ----
+    VEHICLES: {
+      sport: { name: 'Apex GT',   topSpeed: 52, accel: 26, brake: 42, grip: 3.4, steer: 1.9, color: 0x0e7c7b, seats: 2,  hp: 100 },
+      sedan: { name: 'Aurum S',   topSpeed: 38, accel: 18, brake: 32, grip: 3.0, steer: 1.6, color: 0x8a8f98, seats: 4,  hp: 100 },
+      taxi:  { name: 'Bay Taxi',  topSpeed: 36, accel: 17, brake: 32, grip: 3.0, steer: 1.6, color: 0xf7c948, seats: 4,  hp: 100 },
+      suv:   { name: 'Jungle X',  topSpeed: 40, accel: 19, brake: 30, grip: 2.8, steer: 1.4, color: 0x3d5a80, seats: 5,  hp: 140 },
+      truck: { name: 'Harbor Haul', topSpeed: 30, accel: 12, brake: 26, grip: 2.4, steer: 1.1, color: 0xc96f4a, seats: 2,  hp: 180 },
+      bike:  { name: 'Thunder R', topSpeed: 46, accel: 24, brake: 36, grip: 2.6, steer: 2.4, color: 0xc0392b, seats: 2,  hp: 60 },
+      boat:  { name: 'Hydrofoil', topSpeed: 48, accel: 20, brake: 20, grip: 2.0, steer: 1.3, color: 0xe8e8e8, seats: 4,  hp: 120 }
+    },
 
-export const CHARACTERS = {
-  kai: { name: 'Kai Mercer', role: 'Wheelman', color: 0xff7a2e },
-  mira: { name: 'Mira Solano', role: 'Wheelwoman', color: 0xff2e63 },
-  theo: { name: 'Theo Vane', role: 'Hacker', color: 0x2ec4ff },
-  lena: { name: 'Lena Cross', role: 'Fixer', color: 0x9a6bff },
-  voss: { name: 'Cassian Voss', role: 'Voss Syndicate boss', color: 0x222222 },
-};
+    // ---- Missions (8, in story order) ----
+    MISSIONS: [
+      {
+        title: 'First Delivery',
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'Damian, dear, this city has changed since you left. Take this package to Pasar Lentera before the lanterns light up. Don\'t let the police catch a whiff of it.',
+        objective: 'Drive the package to Pasar Lentera',
+        reward: 1500, respect: 10
+      },
+      {
+        title: 'Lantern Chase',
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'Halim\'s men are chasing our courier through the market alley. Go after him, Damian, and bring the goods back. Don\'t let them slip away past the lanterns.',
+        objective: 'Chase the courier through Pasar Lentera',
+        reward: 2500, respect: 15
+      },
+      {
+        title: 'Dockyard Heist',
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'The blue container at the Dockyard holds port documents that could bring Halim down. Slip in quietly, grab them, and get out before the cranes stop moving.',
+        objective: 'Steal the documents from the Dockyard',
+        reward: 4000, respect: 20
+      },
+      {
+        title: "Soraya's Escort",
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'Tonight I have to meet someone at Golden Pier, and Bramantyo has already caught wind of it. Escort me to the boardwalk, Damian. Don\'t let a single bullet touch me.',
+        objective: 'Escort Soraya to Golden Pier',
+        reward: 3500, respect: 20
+      },
+      {
+        title: 'Apex Repo',
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'That Apex GT is yours, Damian. Halim seized it and stashed it in a Highrise Plaza garage. Take your car back, and show them who the best driver in Vandara Bay is.',
+        objective: 'Recover the Apex GT from Highrise Plaza',
+        reward: 0, respect: 25
+      },
+      {
+        title: 'Vault at Golden Pier',
+        giver: 'Victor Halim', role: 'Syndicate Boss',
+        dialogue: 'Reyes. You\'ve done good work so far. The small vault under the Golden Pier dock holds my money. Open it, take your cut, and don\'t think about running. I always know.',
+        objective: 'Open the vault under Golden Pier',
+        reward: 8000, respect: 10
+      },
+      {
+        title: 'Double Cross',
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'Halim set you up, Damian. The vault was bait, and Bramantyo is already waiting outside. Run now, dear. Don\'t trust anyone tonight, except me.',
+        objective: 'Escape the ambush at Golden Pier',
+        reward: 5000, respect: 30
+      },
+      {
+        title: 'Last Hydrofoil Out',
+        giver: 'Tante Soraya', role: 'Fixer & Garage Owner',
+        dialogue: 'This is the last one, Damian. The hydrofoil is waiting at the dock before midnight. Bramantyo has closed every road and Halim has sent all his men. Run, and never look back.',
+        objective: 'Reach the hydrofoil before midnight',
+        reward: 12000, respect: 50
+      }
+    ],
 
-export const MISSIONS = [
-  { id: 0, chapter: 1, title: 'First Light', briefing: 'Mira needs wheels. Steal the Zephyr R at Marina Verde and bring it to her garage.',
-    stages: [
-      { objective: 'Steal the Zephyr R at Marina Verde', target: [-180, 180] },
-      { objective: 'Drive it to Mira’s garage in Palm Court', target: [90, 60] },
-    ], reward: 500, respect: 100 },
-  { id: 1, chapter: 2, title: 'The Drop', briefing: 'A package for the Docks. Fast, quiet, no heat above 2 stars.',
-    stages: [
-      { objective: 'Pick up the package at Old Town', target: [-150, -150] },
-      { objective: 'Deliver it to The Docks — 3:00 on the clock', target: [180, 180], timer: 180 },
-    ], reward: 900, respect: 150 },
-  { id: 2, chapter: 3, title: 'Heat Wave', briefing: 'The SBPD is on you. Two stars. Lose them — break line of sight and stay hidden.',
-    stages: [
-      { objective: 'Lose the cops — break line of sight', target: null },
-      { objective: 'Stay hidden until the heat dies down', target: null },
-    ], reward: 1200, respect: 200 },
-  { id: 3, chapter: 4, title: 'Night Shift', briefing: 'Voss crew at the Neon Palms club. On foot. Six of them. Make it quiet — or loud.',
-    stages: [
-      { objective: 'Reach the Neon Palms club in Coral Row', target: [-90, 60] },
-      { objective: 'Take out the Voss crew — 0 / 6 down', target: [-90, 60] },
-      { objective: 'Lose any heat', target: null },
-    ], reward: 1800, respect: 300 },
-  { id: 4, chapter: 5, title: 'Golden Hour', briefing: 'Grab the cash at Harbor Heights, then lose the cops before the window closes. The heli is up.',
-    stages: [
-      { objective: 'Grab the cash at Harbor Heights', target: [150, -150] },
-      { objective: 'Lose the cops before the window closes — 2:30', target: null, timer: 150 },
-      { objective: 'Bring the money home to Palm Court', target: [90, 60] },
-    ], reward: 2500, respect: 400 },
-  { id: 5, chapter: 6, title: 'Puerto Mira Nights', briefing: 'Lena set a meet at the marina — but Voss himself is coming to end it. Survive the trap, face him at Harbor Heights, then run for the pier.',
-    stages: [
-      { objective: 'Meet Lena at the marina', target: [180, 150] },
-      { objective: 'Survive the ambush — take out 4', target: [180, 150] },
-      { objective: 'Confront Voss at Harbor Heights', target: [120, -180] },
-      { objective: 'Survive the siege', target: [120, -180] },
-      { objective: 'Escape to the pier at Marina Verde', target: [-180, 210] },
-    ], reward: 8000, respect: 1000 },
-];
+    // ---- Radio stations (Web Audio synth loops, Q to switch) ----
+    RADIO: [
+      { name: 'VANDARA 104.2 FM', genre: 'Tropical pop & city beats' },
+      { name: 'GELOMBANG 88.8 FM', genre: 'Late-night jazz & soul' }
+    ],
+
+    // ---- Player tuning ----
+    PLAYER: {
+      walkSpeed: 5.2,
+      sprintSpeed: 9.0,
+      jumpSpeed: 7.5,
+      gravity: 22,
+      eyeHeight: 1.62,
+      camDistance: 4.6,
+      camHeight: 2.1
+    }
+  };
+
+})(window.VR = window.VR || {});

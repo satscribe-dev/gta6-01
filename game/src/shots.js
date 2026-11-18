@@ -1,79 +1,110 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// SOLARA BAY — screenshot staging. Reads ?shot=chase|title|foot|roam&seed=1, sets the scene
+// up, lets the game run live, then sets window.__shotReady for the capture script.
+// Positions are found by probing game.world.isOnRoad so staging never depends on the exact
+// street layout world.js chose.
+import { MISSIONS } from './config.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
-
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
+function findRoadPoint(game, nearX, nearZ) {
+  for (let r = 0; r < 120; r += 10) {
+    for (let dx = -r; dx <= r; dx += 10) {
+      for (let dz = -r; dz <= r; dz += 10) {
+        if (game.world.isOnRoad(nearX + dx, nearZ + dz)) return [nearX + dx, nearZ + dz];
+      }
     }
   }
-  return Infinity;
+  return [nearX, nearZ];
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
+function roadHeading(game, x, z) {
+  // A road runs along the axis where the neighbour cells are also road.
+  const alongX = game.world.isOnRoad(x + 12, z) && game.world.isOnRoad(x - 12, z);
+  const alongZ = game.world.isOnRoad(x, z + 12) && game.world.isOnRoad(x, z - 12);
+  if (alongX && !alongZ) return 0;
+  if (alongZ && !alongX) return Math.PI / 2;
+  return 0;
 }
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+function readySoon(ms = 2500) {
+  window.setTimeout(() => { window.__shotReady = true; }, ms);
+}
+
+function setMissionDisplay(game, missionId, stage) {
+  const m = MISSIONS[missionId];
+  const s = m.stages[stage];
+  game.missions.current = missionId;
+  game.missions.stage = stage;
+  game.missions.state = 'active';
+  game.missions.objective = s.objective;
+  game.missions.target = s.target;
+  game.events.emit('objective', { text: s.objective, stage: stage + 1, total: m.stages.length, chapter: m.chapter, title: m.title });
+  game.events.emit('dialogue', { who: 'mira', role: 'Wheelwoman', text: m.briefing });
+}
+
+export function stageShot(game, name, seed) {
+  // Deterministic-ish staging; the seed is accepted for future use.
+  void seed;
+  if (name === 'title') {
+    readySoon(2000);
+    return;
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+
+  if (name === 'chase') {
+    game.time.day = 1;
+    game.time.minutes = 18 * 60 + 52; // golden hour
+    const [x, z] = findRoadPoint(game, 0, 60);
+    const heading = roadHeading(game, x, z);
+    // Put the player in a Zephyr on the road, moving, then raise the heat.
+    import('./player.js').then((player) => {
+      const parked = game.cars.find((c) => c.isParked);
+      if (parked) {
+        parked.pos.set(x, 0, z);
+        parked.heading = heading;
+        parked.isParked = false;
+        player.enterCar(parked);
+        parked.speed = 34;
+      }
+    });
+    import('./police.js').then((police) => police.setWanted(4));
+    setMissionDisplay(game, 4, 1); // Golden Hour — lose the cops, timer stage
+    game.money = 38420;
+    game.respect = 458;
+    game.respectLevel = 4;
+    readySoon(3000);
+    return;
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+
+  if (name === 'foot') {
+    game.time.day = 1;
+    game.time.minutes = 21 * 60 + 42; // night
+    const [x, z] = findRoadPoint(game, -90, 60);
+    game.player.pos.set(x, 0, z + 6);
+    game.player.heading = Math.PI;
+    game.player.onFoot = true;
+    game.player.weapon = 2; // SMG
+    setMissionDisplay(game, 3, 1); // Night Shift — take out the crew
+    game.money = 9850;
+    game.respect = 500;
+    game.respectLevel = 2;
+    // Fire one burst just before the capture so the tracer + muzzle flash read.
+    window.setTimeout(() => { game.input.clicked = true; }, 2200);
+    readySoon(3000);
+    return;
+  }
+
+  if (name === 'roam') {
+    game.time.day = 2;
+    game.time.minutes = 14 * 60 + 30; // bright afternoon
+    const [x, z] = findRoadPoint(game, -60, 30);
+    game.player.pos.set(x, 0, z + 4);
+    game.player.heading = Math.PI / 4;
+    game.player.onFoot = true;
+    game.money = 12480;
+    game.respect = 820;
+    game.respectLevel = 2;
+    game.events.emit('dialogue', { who: 'lena', role: 'Fixer', text: 'Solara Bay is yours today, Kai. Taxi fares, races, sun coins — pick your hustle.' });
+    readySoon(3000);
+    return;
+  }
+
+  readySoon(1500);
 }

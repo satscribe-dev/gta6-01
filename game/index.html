@@ -3,17 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>SOLARA BAY — open-world crime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e2a4a'/%3E%3Ccircle cx='16' cy='13' r='7' fill='%23ffc93c'/%3E%3Crect x='5' y='21' width='22' height='3' rx='1.5' fill='%232ec4b6'/%3E%3Crect x='8' y='26' width='16' height='2' rx='1' fill='%232ec4b6' opacity='.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./src/hud.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1e2a52; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="SOLARA BAY: open-world crime game. Walk and drive around Solara Bay, take missions, lose the cops."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
+<div id="hud">
+  <div id="mission-card"></div>
+  <div id="top-right">
+    <div id="money">$0</div>
+    <div id="wanted-stars"></div>
+    <div id="clock">Day 1 18:52</div>
+  </div>
+  <div id="scanner-feed"></div>
+  <div id="weapon-slots"></div>
+  <div id="bottom-left">
+    <canvas id="minimap" width="220" height="220"></canvas>
+    <div id="district">Marina Verde</div>
+    <div id="respect-bar"></div>
+  </div>
+  <div id="dialogue-card"></div>
+  <div id="bottom-right">
+    <div id="speedo"></div>
+    <div id="health-armour"></div>
+  </div>
+  <div id="radio-bar"></div>
+  <div id="combo-popup"></div>
+  <div id="damage-vignette"></div>
+  <div id="controls-hint"></div>
+</div>
+<div id="title-screen"></div>
+<div id="pause-menu"></div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

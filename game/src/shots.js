@@ -24,8 +24,26 @@ function roadHeading(game, x, z) {
   return 0;
 }
 
-function readySoon(ms = 2500) {
-  window.setTimeout(() => { window.__shotReady = true; }, ms);
+// v2: the dialogue typewriter runs on the clamped game clock (dt <= 0.05), so at
+// ~1 fps under SwiftShader a briefing needs ~40 s of real time to type out.
+// A fixed timer would capture mid-sentence. Wait until the HUD reports the full
+// text on screen (window.__dialogueComplete), with a 120 s fallback so a shot
+// never hangs the capture run.
+function readyWhenDialogueComplete(onReady, fallbackMs = 120000) {
+  const started = Date.now();
+  const tick = () => {
+    if (window.__dialogueComplete === true) {
+      if (onReady) onReady();
+      window.__shotReady = true;
+      return;
+    }
+    if (Date.now() - started > fallbackMs) {
+      window.__shotReady = true; // give up waiting: capture whatever is showing
+      return;
+    }
+    window.setTimeout(tick, 250);
+  };
+  window.setTimeout(tick, 250);
 }
 
 function setMissionDisplay(game, missionId, stage) {
@@ -44,7 +62,7 @@ export function stageShot(game, name, seed) {
   // Deterministic-ish staging; the seed is accepted for future use.
   void seed;
   if (name === 'title') {
-    readySoon(2000);
+    readyWhenDialogueComplete();
     return;
   }
 
@@ -69,7 +87,7 @@ export function stageShot(game, name, seed) {
     game.money = 38420;
     game.respect = 458;
     game.respectLevel = 4;
-    readySoon(3000);
+    readyWhenDialogueComplete();
     return;
   }
 
@@ -85,9 +103,10 @@ export function stageShot(game, name, seed) {
     game.money = 9850;
     game.respect = 500;
     game.respectLevel = 2;
-    // Fire one burst just before the capture so the tracer + muzzle flash read.
-    window.setTimeout(() => { game.input.clicked = true; }, 2200);
-    readySoon(3000);
+    // Fire one burst right when the dialogue is fully typed, so the tracer +
+    // muzzle flash are still on screen for the capture (the old fixed 2200 ms
+    // timer fired ~40 s before the dialogue finished at 1 fps).
+    readyWhenDialogueComplete(() => { game.input.clicked = true; });
     return;
   }
 
@@ -102,9 +121,9 @@ export function stageShot(game, name, seed) {
     game.respect = 820;
     game.respectLevel = 2;
     game.events.emit('dialogue', { who: 'lena', role: 'Fixer', text: 'Solara Bay is yours today, Kai. Taxi fares, races, sun coins — pick your hustle.' });
-    readySoon(3000);
+    readyWhenDialogueComplete();
     return;
   }
 
-  readySoon(1500);
+  readyWhenDialogueComplete();
 }

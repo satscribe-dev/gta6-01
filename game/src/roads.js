@@ -4,8 +4,8 @@
 // uniform 8x8 grid is GONE. Streets are IRREGULARLY spaced, 4 are
 // partial (T-junctions), widths form a hierarchy (boulevard 11 /
 // mains 7 / streets 6 / lane 5 / alley 4), and the network is
-// completed by curved chains (avenue, ring, beach road, crescent,
-// Market Curve, Highrise Arc, Bayview Curve) + 2
+// completed by curved chains (avenue, ring, beach road, crescent)
+// + two straight east-west mains (Market z=52, Highrise z=-160) + 2
 // dead-end stubs. Blocks are the cells between adjacent streets —
 // different sizes by construction. A street is a node SEQUENCE
 // (endpoints + crossings with other streets + chain/link points that
@@ -17,6 +17,16 @@
 // the irregular spacing + partials + curves + diagonals, not a jog in
 // every run: streets are ~orthogonal with varying spacing, the curves
 // and diagonals supply the gentle bends.
+// W5f (r7) TIDY ROUND 2: the W5e cut of the Harbor Diagonal was not
+// enough — Bos (02:30 WIB): the whole network still read messy from
+// above. The cause was the two wavy mains through the middle of the
+// city (Market Curve + Highrise Arc sawtoothing ±8 through their
+// bands) plus the Bayview Curve cutting the NE corner: Market and
+// Highrise are STRAIGHTENED to z=52 / z=-160, Bayview is CUT. The
+// network is now a clean orthogonal grid + ONE diagonal (Vandara
+// Avenue) + contained loops (Plaza Ring, Pasar Crescent, beach road
+// along the coast). Every block is a closed rectangle except where
+// the single avenue cuts it — by design.
 // METHOD (OSM article, IDEAS ONLY — no OSM data, no copied code):
 // roads are POLYLINES from a plan written in this session (our own
 // fictional Vandara Bay, not a real city); a junction is a SHARED
@@ -143,10 +153,14 @@
   // can never go stale when a street moves. Dedupe < 2 keeps the
   // staggered pair (-54,24) [z=24] and (-52,22) [x=-52], 2.8 apart.
   // W5c (r6): +1 junction — (160,-190) where the Bayview Curve
-  // crosses it — so the curve joins the avenue at grade.
+  // crossed it — so the curve joins the avenue at grade.
   // W5e (r7): the Harbor Diagonal is CUT (it crossed the avenue at
   // (105,-135) at 90 degrees, an X through the NE superblock) and
   // its avenue junction point is gone with it.
+  // W5f (r7): Market junction (-81,51) -> (-82,52) and Highrise
+  // junction (133,-163) -> (130,-160) follow the straightened
+  // mains; the Bayview junction (160,-190) is gone with the cut
+  // Bayview Curve.
   var avPts = [];
   for (var avi = 0; avi < V.length; avi++) {
     var az = -30 - V[avi].x;
@@ -156,7 +170,7 @@
     var ax = -30 - H[ahi].z;
     if (ax >= H[ahi].x0 && ax <= H[ahi].x1) avPts.push([ax, H[ahi].z]);
   }
-  avPts.push([-81, 51], [133, -163], [160, -190]); // junctions with Market Curve / Highrise Arc / Bayview Curve
+  avPts.push([-82, 52], [130, -160]); // junctions with Market Main / Highrise Main
   avPts.sort(function (a, b) { return b[0] - a[0]; }); // west to east
   var avDedup = [];
   for (var adi = 0; adi < avPts.length; adi++) {
@@ -206,53 +220,49 @@
     [50, 194], [100, 199], [118, 210]
   ], 6);
 
-  // 5) MARKET CURVE — a wavy east-west main (w=7) through Pasar and
-  // Highrise Plaza. Every point lies ON a vertical street, so every
-  // point is a junction — the curve is stitched into the grid instead
-  // of floating over it. It crosses the avenue at (-81,51), which is
-  // a shared node of both chains.
+  // 5) MARKET MAIN (W5f, r7) — was MARKET CURVE: a wavy east-west
+  // main (60->48->58->51->42->56->44->58->60) that sawtoothed through
+  // the middle of the z=24..86 band and sliced its blocks into
+  // slivers — the main thing the aerial read as "acak-acakan" (Bos
+  // 02:30 WIB). STRAIGHTENED to z=52, full width, w=7: every point
+  // lies ON a vertical street, so every point is a junction, and
+  // the band splits into two clean rectangle rows (24..52, 52..86).
+  // It crosses the avenue at (-82,52), a shared node of both chains.
   defineChain('curve', [
-    [-210, 60], [-158, 48], [-104, 58], [-52, 42],
-    [8, 56], [-81, 51], [64, 44], [118, 58], [210, 60]
+    [-210, 52], [-158, 52], [-104, 52], [-82, 52], [-52, 52],
+    [8, 52], [64, 52], [118, 52], [210, 52]
   ].sort(function (a, b) { return a[0] - b[0]; }), 7);
 
-  // 6) HIGHRISE ARC — a gentle arc north of the ring, through
-  // downtown. Every point lies ON a vertical street (junctions).
-  // It runs 12-28 south of the z=-138 street (a distinct curved
-  // street, not a shadow of it) and crosses the avenue at (133,-163),
-  // a shared node.
-  // W5e (r7): the (83,-157) Harbor-Diagonal junction is gone with
-  // the diagonal — the arc runs (64,-154) -> (118,-164) direct.
+  // 6) HIGHRISE MAIN (W5f, r7) — was HIGHRISE ARC: a sawtooth
+  // (-162->-150->-164->-152->-166->-154->-164->-163->-160) 12-28
+  // south of the z=-138 street that read from above as a second
+  // wavy line shadowing it. STRAIGHTENED to z=-160, full width, w=6
+  // (kept inside the old corridor so no building footprint the old
+  // arc dodged is newly cut): the -138..-210 band splits into two
+  // clean rectangle rows (-138..-160, -160..-210). Every point lies
+  // ON a vertical street (junctions); it crosses the avenue at
+  // (130,-160), a shared node.
   defineChain('curve', [
-    [-210, -162], [-158, -150], [-104, -164], [-52, -152],
-    [8, -166], [64, -154], [118, -164], [133, -163], [210, -160]
+    [-210, -160], [-158, -160], [-104, -160], [-52, -160],
+    [8, -160], [64, -160], [118, -160], [130, -160], [210, -160]
   ].sort(function (a, b) { return a[0] - b[0]; }), 6);
 
-  // 6b) BAYVIEW CURVE (W5c, r6) — a curved boulevard across the
-  // north-east, between the north edge and the Highrise Arc, sagging
-  // south mid-block. Ties: (8,-210) on the north edge, (64,-194) on
-  // V64, (118,-200) on V118, (160,-190) shared with the avenue,
-  // (210,-172) on V210. W5e (r7): the Harbor Diagonal is CUT — it
-  // crossed the avenue at (105,-135) at 90 degrees, so the NE
-  // superblock was cut by an X of diagonals instead of a rectangle
-  // (the code's own comment admitted it). The Bayview Curve STAYS:
-  // it is a gentle curve (slope ~0.24 where it meets the avenue),
-  // the kind of bend the street rules allow, and cutting it would
-  // have left the X itself intact. Every Harbor point already lay
-  // on another road (north edge / Bayview / V64 / arc / H-138 /
-  // avenue / V118 / east edge), so cutting it orphans no node and
-  // the NE block closes as one rectangle bounded by the grid +
-  // the single avenue diagonal + the Bayview curve.
-  defineChain('curve', [
-    [8, -210], [57, -196], [64, -194], [118, -200],
-    [160, -190], [180, -186], [210, -172]
-  ], 6);
+  // 6b) BAYVIEW CURVE — CUT in W5f (r7). It sagged across the
+  // north-east band (-210..-138) from (8,-210) to (210,-172),
+  // cutting the NE corner blocks on a third diagonal-ish line
+  // alongside the avenue and the arc. Redundant: every one of its
+  // junctions already lay on another road, and the straightened
+  // Highrise Main at z=-160 already splits the NE band — so cutting
+  // it orphans no node and the NE closes as rectangles bounded by
+  // the grid + the single avenue diagonal.
 
   // 7-8) DEAD-END STUBS — short cul-de-sac stubs into blocks, each
   // ending in a turnaround bulb (world.js renders a disc at the end
   // point). Degree-1 graph endpoints; everything else stays
   // connected through the stub's start junction.
-  defineChain('deadend', [[8, 50], [40, 50]], 5);
+  // W5f: D1 moved 50 -> 52 so it branches off the straightened
+  // Market Main instead of floating 2 units off it.
+  defineChain('deadend', [[8, 52], [40, 52]], 5);
   defineChain('deadend', [[150, -138], [150, -100]], 5);
 
   // Connector segments (ring spokes, beach ties): graph edges that

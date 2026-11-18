@@ -6,6 +6,7 @@
 // systems are defensive: police/missions/world may not exist yet when a shot
 // is staged, and the HUD must still render.
 import { WEAPONS, RADIO, CHARACTERS, MISSIONS, DISTRICTS, CITY } from './config.js';
+import { STREETS } from './world.js';
 import { hasSave, saveGame, loadGame } from './save.js';
 
 const $ = (id) => document.getElementById(id);
@@ -84,6 +85,121 @@ function missionTarget() {
   return st && st.target ? st.target : null;
 }
 
+// ---------- real street network (same data as the 3D world) ----------
+// The street lines come from world.js (exported STREETS / game.world.streets)
+// — never re-typed here, so the minimap can never drift from the 3D city.
+// Streets run the full city width; vertical streets end where the beach
+// starts (z = CITY.beachZ) and the z = 222 line IS beach, not road —
+// game.world.isOnRoad agrees, so both are excluded from the drivable net.
+function roadStreets() {
+  const w = gameRef && gameRef.world && Array.isArray(gameRef.world.streets)
+    ? gameRef.world.streets : null;
+  return (w && w.length) ? w : STREETS;
+}
+
+// Nearest point ON the street network to (x, z). Every street is a segment:
+// vertical streets x = s, z in [-half, beachZ]; horizontal streets z = s
+// (s <= beachZ), x in [-half, half].
+function snapToRoad(x, z) {
+  const streets = roadStreets();
+  let best = null;
+  for (const s of streets) {
+    const vz = clamp(z, -CITY.half, CITY.beachZ);
+    const d2v = (x - s) * (x - s) + (z - vz) * (z - vz);
+    if (!best || d2v < best.d2) best = { x: s, z: vz, d2: d2v };
+    if (s > CITY.beachZ) continue;
+    const hx = clamp(x, -CITY.half, CITY.half);
+    const d2h = (x - hx) * (x - hx) + (z - s) * (z - s);
+    if (d2h < best.d2) best = { x: hx, z: s, d2: d2h };
+  }
+  return best;
+}
+
+// Shortest route that FOLLOWS the streets (never cuts across blocks).
+// Graph: the 7x6 intersections plus the snapped start/end as extra nodes.
+// Start/end connect to every intersection on their own street line (weight =
+// true along-street distance), intersections connect to their 4 neighbours.
+// Dijkstra over ~44 nodes — trivial cost, run once per map redraw.
+function routeAlongRoads(from, to) {
+  const streets = roadStreets();
+  const rows = streets.filter((s) => s <= CITY.beachZ); // horizontal streets
+  const a = snapToRoad(from[0], from[1]);
+  const b = snapToRoad(to[0], to[1]);
+  const key = (i, j) => i + ',' + j;
+  const coord = (k) => {
+    if (k === 'S') return [a.x, a.z];
+    if (k === 'T') return [b.x, b.z];
+    const parts = k.split(',');
+    return [streets[+parts[0]], rows[+parts[1]]];
+  };
+  const neighbors = (k) => {
+    const out = [];
+    const [x, z] = coord(k);
+    if (k === 'S' || k === 'T') {
+      for (let i = 0; i < streets.length; i++) {
+        for (let j = 0; j < rows.length; j++) {
+          const ix = streets[i];
+          const iz = rows[j];
+          if (ix === x || iz === z) {
+            const d = Math.abs(ix - x) + Math.abs(iz - z);
+            if (d > 0) out.push([key(i, j), d]);
+          }
+        }
+      }
+      const other = k === 'S' ? 'T' : 'S';
+      const [ox, oz] = coord(other);
+      if (ox === x || oz === z) out.push([other, Math.abs(ox - x) + Math.abs(oz - z)]);
+      return out;
+    }
+    const parts = k.split(',');
+    const i = +parts[0];
+    const j = +parts[1];
+    const adj = [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]];
+    for (const [ni, nj] of adj) {
+      if (ni < 0 || ni >= streets.length || nj < 0 || nj >= rows.length) continue;
+      out.push([key(ni, nj), Math.abs(streets[ni] - streets[i]) + Math.abs(rows[nj] - rows[j])]);
+    }
+    // The snapped start/end sit ON a street line: an intersection on that
+    // same line can reach them directly (weight = along-street distance).
+    // Without these edges Dijkstra could never arrive at T at all.
+    for (const other of ['S', 'T']) {
+      const [ox, oz] = coord(other);
+      if (ox === x || oz === z) {
+        const d = Math.abs(ox - x) + Math.abs(oz - z);
+        if (d > 0) out.push([other, d]);
+      }
+    }
+    return out;
+  };
+  const dist = new Map([['S', 0]]);
+  const prev = new Map();
+  const done = new Set();
+  for (;;) {
+    let uk = null;
+    let ud = Infinity;
+    for (const [k, d] of dist) {
+      if (!done.has(k) && d < ud) { uk = k; ud = d; }
+    }
+    if (uk === null || uk === 'T') break;
+    done.add(uk);
+    for (const [nk, w] of neighbors(uk)) {
+      const nd = ud + w;
+      if (nd < (dist.has(nk) ? dist.get(nk) : Infinity)) {
+        dist.set(nk, nd);
+        prev.set(nk, uk);
+      }
+    }
+  }
+  if (!dist.has('T')) return [[a.x, a.z], [b.x, b.z]];
+  const path = [];
+  let cur = 'T';
+  while (cur) {
+    path.unshift(coord(cur));
+    cur = prev.get(cur);
+  }
+  return path;
+}
+
 // ---------- combo popups ----------
 function showCombo(title, sub, kind) {
   const box = el.combo;
@@ -136,6 +252,7 @@ function startDialogue(who, role, text) {
   el.dlgText.textContent = '';
   card.classList.remove('hidden');
   card.classList.add('visible');
+  window.__dialogueComplete = false; // new dialogue started: not fully shown yet
   S.dialogue = { full: String(text), shown: 0, timer: 0, holdUntil: 0 };
 }
 
@@ -149,10 +266,14 @@ function updateDialogue(dt) {
       d.shown = Math.min(d.full.length, target);
       el.dlgText.textContent = d.full.slice(0, d.shown);
     }
-    if (d.shown >= d.full.length) d.holdUntil = S.now + 3.0;
+    if (d.shown >= d.full.length) {
+      d.holdUntil = S.now + 3.0;
+      window.__dialogueComplete = true; // full text on screen — safe to capture
+    }
   } else if (S.now >= d.holdUntil) {
     el.dialogue.classList.remove('visible');
     el.dialogue.classList.add('hidden');
+    window.__dialogueComplete = false; // card hidden: no complete dialogue showing
     S.dialogue = null;
   }
 }
@@ -194,27 +315,56 @@ function drawMap(canvasEl, size) {
       ctx2d.fillText(d.name.toUpperCase(), (px(d.x0) + px(d.x1)) / 2, (px(d.z0) + px(d.z1)) / 2);
     }
   }
-  // Road grid: streets every block (60 m).
-  ctx2d.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx2d.lineWidth = big ? 3 : 2;
+  // Real streets, drawn as roads — not a grid: each street is an asphalt
+  // band CITY.street wide on the exact STREETS lines from world.js, with a
+  // dark casing edge and a dashed centre line (same yellow as the 3D dashes).
+  // Intersections form themselves where vertical meets horizontal. Vertical
+  // bands stop at the beach (z = CITY.beachZ); the z = 222 line is sand.
+  const streets = roadStreets();
+  const halfW = (CITY.street / 2) * scale;
+  const casing = halfW + Math.max(1, scale * 1.5);
+  const beachTop = px(CITY.beachZ);
+  ctx2d.fillStyle = '#141824'; // casing (dark edge)
+  for (const s of streets) {
+    ctx2d.fillRect(px(s) - casing, 0, casing * 2, beachTop);
+    if (s <= CITY.beachZ) ctx2d.fillRect(0, px(s) - casing, size, casing * 2);
+  }
+  ctx2d.fillStyle = '#3a4054'; // asphalt
+  for (const s of streets) {
+    ctx2d.fillRect(px(s) - halfW, 0, halfW * 2, beachTop);
+    if (s <= CITY.beachZ) ctx2d.fillRect(0, px(s) - halfW, size, halfW * 2);
+  }
+  ctx2d.strokeStyle = 'rgba(245,215,110,0.85)'; // centre dashes
+  ctx2d.lineWidth = Math.max(1, scale * 1.2);
+  ctx2d.setLineDash([Math.max(4, scale * 6), Math.max(4, scale * 6)]);
   ctx2d.beginPath();
-  for (let v = -CITY.half; v <= CITY.half; v += CITY.block) {
-    ctx2d.moveTo(px(v), 0);
-    ctx2d.lineTo(px(v), size);
-    ctx2d.moveTo(0, px(v));
-    ctx2d.lineTo(size, px(v));
+  for (const s of streets) {
+    ctx2d.moveTo(px(s), 0);
+    ctx2d.lineTo(px(s), beachTop);
+    if (s <= CITY.beachZ) {
+      ctx2d.moveTo(0, px(s));
+      ctx2d.lineTo(size, px(s));
+    }
   }
   ctx2d.stroke();
-  // Route line to the mission target.
+  ctx2d.setLineDash([]);
+  // Route line to the mission target — follows the streets (BFS/Dijkstra
+  // over the intersections), never a straight cut across blocks. The
+  // mission marker sits on the road too: snapped for DISPLAY only, the
+  // real 3D target in missions.js is untouched.
   const target = missionTarget();
   const p = gameRef && gameRef.player ? gameRef.player.pos : null;
+  const markerAt = target ? snapToRoad(target[0], target[1]) : null;
   if (target && p) {
+    const path = routeAlongRoads([p.x, p.z], target);
     ctx2d.strokeStyle = '#ffc93c';
     ctx2d.lineWidth = big ? 3 : 2;
     ctx2d.setLineDash([7, 5]);
     ctx2d.beginPath();
-    ctx2d.moveTo(px(p.x), px(p.z));
-    ctx2d.lineTo(px(target[0]), px(target[1]));
+    path.forEach(([wx, wz], i) => {
+      if (i === 0) ctx2d.moveTo(px(wx), px(wz));
+      else ctx2d.lineTo(px(wx), px(wz));
+    });
     ctx2d.stroke();
     ctx2d.setLineDash([]);
   }
@@ -254,12 +404,12 @@ function drawMap(canvasEl, size) {
       ctx2d.stroke();
     }
   }
-  // Mission marker (pulsing gold diamond).
-  if (target) {
+  // Mission marker (pulsing gold diamond) — snapped onto the road.
+  if (markerAt) {
     const pulse = 1 + 0.25 * Math.sin(S.now * 5);
     const r = (big ? 9 : 6) * pulse;
-    const mx = px(target[0]);
-    const my = px(target[1]);
+    const mx = px(markerAt.x);
+    const my = px(markerAt.z);
     ctx2d.fillStyle = '#ffc93c';
     ctx2d.beginPath();
     ctx2d.moveTo(mx, my - r);
@@ -916,9 +1066,10 @@ function init(game) {
     el.radio.appendChild(hint);
   }
 
-  // Controls hint.
+  // Controls hint — short on purpose: the dialogue card now sits bottom-left,
+  // so a full-width hint would run underneath it at 1280x720.
   if (el.hint) {
-    el.hint.textContent = 'WASD DRIVE · SHIFT NITRO · SPACE DRIFT · F ENTER CAR · E INTERACT · 1–4 WEAPONS · Q RADIO · M MAP · V CAMERA · ESC PAUSE';
+    el.hint.textContent = 'WASD DRIVE · SHIFT NITRO · SPACE DRIFT · F CAR · Q RADIO · ESC PAUSE';
   }
 
   buildTitle();
@@ -982,6 +1133,8 @@ function init(game) {
 
   S.displayedMoney = game.money ?? 0;
   S.prevHealth = game.player ? game.player.health ?? 100 : 100;
+  // No dialogue showing yet: nothing mid-typewriter, safe to capture.
+  window.__dialogueComplete = true;
   refreshMissionCard();
   refreshVisibility();
 }
@@ -1014,7 +1167,7 @@ function update(dt) {
   refreshMissionCard();
 
   // Minimap redraws every frame — blips move, the route stays live.
-  if (el.minimap && gameRef.mode !== 'paused') drawMap(el.minimap, 220);
+  if (el.minimap && gameRef.mode !== 'paused') drawMap(el.minimap, 200);
   if (S.mapOpen && el.mapCanvas) drawMap(el.mapCanvas, 480);
 }
 

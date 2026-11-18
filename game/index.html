@@ -19,19 +19,25 @@
 <canvas id="game" aria-label="SOLARA BAY: open-world crime game. Walk and drive around Solara Bay, take missions, lose the cops."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 <div id="hud">
-  <div id="mission-card"></div>
+  <div id="top-left">
+    <div id="minimap-wrap">
+      <div id="minimap-header">
+        <span class="mm-title">SOLARA BAY</span>
+        <span id="district">Marina Verde</span>
+        <span class="mm-compass">N</span>
+      </div>
+      <canvas id="minimap" width="200" height="200"></canvas>
+      <div id="respect-bar"></div>
+    </div>
+    <div id="mission-card"></div>
+    <div id="scanner-feed"></div>
+  </div>
   <div id="top-right">
     <div id="money">$0</div>
     <div id="wanted-stars"></div>
     <div id="clock">Day 1 18:52</div>
   </div>
-  <div id="scanner-feed"></div>
   <div id="weapon-slots"></div>
-  <div id="bottom-left">
-    <canvas id="minimap" width="220" height="220"></canvas>
-    <div id="district">Marina Verde</div>
-    <div id="respect-bar"></div>
-  </div>
   <div id="dialogue-card"></div>
   <div id="bottom-right">
     <div id="speedo"></div>

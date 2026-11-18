@@ -6,6 +6,8 @@
 // up by updateEnemies below, which counts it and removes the corpse.
 import * as THREE from 'three';
 import { MISSIONS, CHARACTERS } from './config.js';
+import { setWanted as policeSetWanted } from './police.js';
+import { spawnCar } from './vehicles.js';
 
 const MARKER_RADIUS = 6;
 const ENEMY_HEALTH = 50;
@@ -74,11 +76,6 @@ function distTo(x, z) {
   const dx = p.x - x;
   const dz = p.z - z;
   return Math.sqrt(dx * dx + dz * dz);
-}
-
-function setWanted(n) {
-  game.wanted = n;
-  game.events.emit('wanted', { stars: n });
 }
 
 // --- marker (gold light pillar + ground ring) ---
@@ -206,8 +203,8 @@ function emitObjective() {
   const m = MISSIONS[game.missions.current];
   const def = m && m.stages ? m.stages[game.missions.stage] : null;
   // While idle/done the objective is a status line set by fail/complete
-  // ("failed — return to the marker", "Next: ..."); only an active mission
-  // shows its live stage objective (with kill count / timer).
+  // ("failed — press E at the marker", "Next: ... press E ..."); only an
+  // active mission shows its live stage objective (with kill count / timer).
   let text = game.missions.objective;
   if (game.missions.state === 'active' && def) {
     text = stageKind(def) === 'combat' ? combatText(def) : def.objective;
@@ -241,9 +238,11 @@ function setupStage() {
   }
   // Heat scripted by the story: M2 opens at 2 stars, the M3 club job draws
   // 2 stars once the shooting starts, the M4 grab puts the heli up (3 stars).
-  if (game.missions.current === 2 && game.missions.stage === 0) setWanted(2);
-  if (game.missions.current === 3 && game.missions.stage === 2) setWanted(2);
-  if (game.missions.current === 4 && game.missions.stage === 1) setWanted(3);
+  // Via police.setWanted so the hide/busted clocks reset (a raw
+  // `game.wanted = n` would leave a half-spent hiddenTime behind).
+  if (game.missions.current === 2 && game.missions.stage === 0) policeSetWanted(2);
+  if (game.missions.current === 3 && game.missions.stage === 2) policeSetWanted(2);
+  if (game.missions.current === 4 && game.missions.stage === 1) policeSetWanted(3);
   game.missions.objective = kind === 'combat' ? combatText(def) : def.objective;
   emitObjective();
 }
@@ -280,10 +279,10 @@ export function failMission(reason) {
   const m = MISSIONS[game.missions.current];
   game.missions.stage = 0;
   game.missions.state = 'idle';
-  game.missions.objective = `${m.title} — failed (${reason}). Return to the gold marker to retry.`;
+  game.missions.objective = `${m.title} — failed (${reason}). Press E at the gold marker to retry.`;
   game.missions.target = m.stages[0].target ? [m.stages[0].target[0], m.stages[0].target[1]] : null;
   if (game.missions.target) showMarker(game.missions.target[0], game.missions.target[1]);
-  say('lena', `That went sideways, Kai. ${m.title} is still open — get back to the marker and run it again.`);
+  say('lena', `That went sideways, Kai. ${m.title} is still open — get back to the marker and press E to run it again.`);
   game.events.emit('mission', { result: 'failed', mission: game.missions.current, reason });
   emitObjective();
 }
@@ -309,7 +308,7 @@ export function completeMission() {
     game.missions.stage = 0;
     game.missions.state = 'idle';
     const next = MISSIONS[game.missions.current];
-    game.missions.objective = `Next: ${next.title} — reach the gold marker.`;
+    game.missions.objective = `Next: ${next.title} — press E at the gold marker to start.`;
     game.missions.target = next.stages[0].target ? [next.stages[0].target[0], next.stages[0].target[1]] : null;
     if (game.missions.target) showMarker(game.missions.target[0], game.missions.target[1]);
   }
@@ -414,7 +413,7 @@ function init(g) {
   game.missions.current = 0;
   game.missions.stage = 0;
   game.missions.state = 'idle';
-  game.missions.objective = `Next: ${MISSIONS[0].title} — reach the gold marker.`;
+  game.missions.objective = `Next: ${MISSIONS[0].title} — press E at the gold marker to start.`;
   game.missions.target = first ? [first[0], first[1]] : null;
   if (first) showMarker(first[0], first[1]);
   // Busted / wasted arrive as mode changes (main.js only calls update() while
@@ -440,14 +439,13 @@ function update(dt) {
     marker.pillar.material.opacity = 0.2 + 0.08 * Math.sin(elapsed * 3);
   }
 
-  // Idle: walk/drive into the gold marker (6 m) or press E near it (12 m).
+  // Idle: a mission ONLY starts when the player presses E within 12 m of
+  // the gold marker. Walking/driving through the marker never starts it —
+  // a fresh player needs a moment to get ready before a timed run
+  // (e.g. The Drop, 3:00 on the clock).
   if (game.missions.state === 'idle') {
     const t = game.missions.target;
-    if (t) {
-      const d = distTo(t[0], t[1]);
-      if (d <= MARKER_RADIUS) startMission(game.missions.current);
-      else if (ePressed && d <= 12) startMission(game.missions.current);
-    }
+    if (t && ePressed && distTo(t[0], t[1]) <= 12) startMission(game.missions.current);
   }
 
   if (game.missions.state !== 'active') return;

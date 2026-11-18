@@ -19,8 +19,6 @@
 #mission-card,
 #scanner-feed .scanner-row,
 #weapon-slots .weapon-slot,
-#district,
-#respect-bar,
 #dialogue-card,
 #radio-bar,
 #controls-hint,
@@ -32,12 +30,23 @@
   backdrop-filter: blur(3px);
 }
 
-/* ---------- mission card (top-left) ---------- */
-#mission-card {
+/* ---------- left column: minimap wrap, mission card, scanner feed ---------- */
+#top-left {
   position: absolute;
   top: 14px;
   left: 14px;
+  bottom: 136px; /* stops above the dialogue card (bottom-left) */
   width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- mission card (in the left column, under the minimap) ---------- */
+#mission-card {
+  flex: none;
+  width: 320px;
+  box-sizing: border-box;
   padding: 10px 12px 11px;
   border-left: 4px solid #ff7a2e;
 }
@@ -146,11 +155,11 @@
   color: #ffe9c9;
 }
 
-/* ---------- scanner feed (under mission card) ---------- */
+/* ---------- scanner feed (under mission card; clips oldest rows first) ---------- */
 #scanner-feed {
-  position: absolute;
-  top: 218px;
-  left: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   width: 320px;
 }
 .scanner-row {
@@ -171,10 +180,10 @@
 .scanner-row.warm { color: #ffe9c9; border-left-color: #ffc93c; }
 .scanner-row.standby { color: #9aa3b2; border-left-color: #6b7280; }
 
-/* ---------- weapon slots (left edge, mid) ---------- */
+/* ---------- weapon slots (right edge, mid) ---------- */
 #weapon-slots {
   position: absolute;
-  left: 14px;
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -207,40 +216,91 @@
 }
 .ws-ammo { margin-left: auto; color: #ffc93c; font-variant-numeric: tabular-nums; }
 
-/* ---------- bottom-left: minimap / district / respect ---------- */
-#bottom-left {
-  position: absolute;
-  left: 14px;
-  bottom: 14px;
+/* ---------- minimap wrap (top of the left column) ----------
+   Not a plain square: big rounded corners, double border (2px gold outer +
+   inset hairline), header strip on top, soft gold glow. The wrapper clips
+   the canvas corners (overflow hidden). */
+#minimap-wrap {
+  flex: none;
+  width: 220px;
+  box-sizing: border-box;
+  padding: 8px 8px 9px;
+  background: rgba(16, 20, 38, 0.78);
+  border: 2px solid #ffc93c;
+  border-radius: 18px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 6px 22px rgba(0, 0, 0, 0.5),
+    0 0 18px rgba(255, 201, 60, 0.16);
+  backdrop-filter: blur(3px);
+  overflow: hidden;
+}
+#minimap-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 7px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 201, 60, 0.35);
+}
+.mm-title {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #ffc93c;
+}
+#minimap-header #district {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #ffe9c9;
+}
+.mm-compass {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid #ffc93c;
+  color: #ffc93c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
 }
 #minimap {
   display: block;
-  width: 220px;
-  height: 220px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
+  width: 200px;
+  height: 200px;
   border-radius: 12px;
   background: #232a3d;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
 }
-#district {
-  margin-top: 6px;
-  display: inline-block;
-  padding: 5px 12px;
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 1.5px;
-  color: #ffe9c9;
+/* Respect bar: one compact row inside the minimap wrapper, under the canvas. */
+#respect-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 2px;
 }
-#respect-bar { margin-top: 6px; padding: 6px 10px; width: 220px; box-sizing: border-box; }
 .respect-label {
+  flex: none;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.5px;
   color: #c8a0ff;
+  white-space: nowrap;
 }
 .respect-track {
+  flex: 1;
   height: 8px;
-  margin-top: 4px;
   background: rgba(255, 255, 255, 0.14);
   border-radius: 4px;
   overflow: hidden;
@@ -253,12 +313,12 @@
   transition: width 0.3s ease;
 }
 
-/* ---------- dialogue card (bottom centre-left) ---------- */
+/* ---------- dialogue card (bottom-left, now that the minimap moved up) ---------- */
 #dialogue-card {
   position: absolute;
-  left: 260px;
+  left: 14px;
   bottom: 14px;
-  width: 430px;
+  width: 400px;
   min-height: 84px;
   display: flex;
   gap: 12px;

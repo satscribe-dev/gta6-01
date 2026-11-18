@@ -273,11 +273,15 @@ function removeHelicopter() {
 export function setWanted(n) {
   if (!G) return;
   const stars = clamp(Math.round(n), 0, MAX_WANTED);
-  if (stars === G.wanted) return;
-  G.wanted = stars;
+  // The hide/busted clocks reset even when the level is re-asserted
+  // unchanged: story heat (missions.js) sets a level the player may already
+  // be at, and a half-spent hiddenTime would otherwise shed a star almost
+  // immediately. Only the assignment + HUD emit are skipped when unchanged.
   hiddenTime = 0;
   heliBlindTime = 0;
   bustedTimer = 0;
+  if (stars === G.wanted) return;
+  G.wanted = stars;
   G.events.emit('wanted', { stars });
 }
 

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { CITY, DISTRICTS, PALETTE } from './config.js';
 
 // Streets run on a 74 m pitch (60 m block + 14 m street), centred on these lines.
-const STREETS = [-222, -148, -74, 0, 74, 148, 222];
+export const STREETS = [-222, -148, -74, 0, 74, 148, 222];
 const BLOCK_CENTERS = [-185, -111, -37, 37, 111, 185];
 const SUNRISE_MIN = 360; // 06:00
 const SUNSET_MIN = 1140; // 19:00
@@ -527,19 +527,25 @@ function buildSigns(scene) {
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.6, metalness: 0.6 });
   for (const s of signs) {
     const tex = textTexture(s.text, s.color);
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(16, 4), mat);
-    plane.position.set(s.x, 7.5, s.z);
-    plane.rotation.y = s.rot;
-    scene.add(plane);
+    // Two FrontSide text planes, back to back: one DoubleSide plane shows
+    // the text mirrored from behind, so each side gets its own plane that
+    // reads correctly from that side. The dark backing panel is DoubleSide
+    // (plain colour, so mirroring is irrelevant) and sits between them.
+    const nx = Math.sin(s.rot);
+    const nz = Math.cos(s.rot);
+    for (const side of [1, -1]) {
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(16, 4), mat);
+      plane.position.set(s.x + nx * 0.06 * side, 7.5, s.z + nz * 0.06 * side);
+      plane.rotation.y = side > 0 ? s.rot : s.rot + Math.PI;
+      scene.add(plane);
+    }
     const back = new THREE.Mesh(
       new THREE.PlaneGeometry(16.6, 4.6),
-      new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.9 }),
+      new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.9, side: THREE.DoubleSide }),
     );
     back.position.set(s.x, 7.5, s.z);
     back.rotation.y = s.rot;
-    back.position.x -= Math.sin(s.rot) * 0.08;
-    back.position.z -= Math.cos(s.rot) * 0.08;
     scene.add(back);
     for (const dx of [-7, 7]) {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 7.5, 6), poleMat);
@@ -568,13 +574,20 @@ function buildSigns(scene) {
       ctx.fillStyle = '#ffe9c8';
       ctx.fillText(b.sub, w / 2, h / 2 + 48);
     });
-    const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(14, 7),
-      new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
-    );
-    plane.position.set(b.x, 11, b.z);
-    plane.rotation.y = b.rot;
-    scene.add(plane);
+    // Two FrontSide planes back to back (same reason as the neon signs:
+    // a DoubleSide plane reads mirrored from behind). Texture is opaque,
+    // so no backing panel is needed.
+    const bnx = Math.sin(b.rot);
+    const bnz = Math.cos(b.rot);
+    for (const side of [1, -1]) {
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(14, 7),
+        new THREE.MeshBasicMaterial({ map: tex }),
+      );
+      plane.position.set(b.x + bnx * 0.06 * side, 11, b.z + bnz * 0.06 * side);
+      plane.rotation.y = side > 0 ? b.rot : b.rot + Math.PI;
+      scene.add(plane);
+    }
     for (const dx of [-5, 5]) {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 8, 6), poleMat);
       pole.position.set(b.x + Math.cos(b.rot) * dx, 4, b.z - Math.sin(b.rot) * dx);
@@ -697,15 +710,15 @@ function buildLighting(scene) {
 
 // Day-cycle keyframes (minutes of day -> sky/fog/light/lamp values).
 const SKY_KEYS = [
-  { m: 0, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.10, hemi: 0.22, lamp: 1.0, win: 0.9 },
-  { m: 300, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.10, hemi: 0.22, lamp: 1.0, win: 0.9 },
+  { m: 0, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.25, hemi: 0.45, lamp: 1.30, win: 1.20 },
+  { m: 300, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.25, hemi: 0.45, lamp: 1.30, win: 1.20 },
   { m: 360, top: 0x2a3a6a, hor: 0xffb37a, fog: 0xc98a7a, sun: 0xffb37a, sunI: 0.70, hemi: 0.50, lamp: 0.6, win: 0.5 },
   { m: 480, top: 0x3f7fd0, hor: 0xbfe0ea, fog: 0xcfe0e8, sun: 0xfff2d0, sunI: 1.60, hemi: 0.90, lamp: 0.0, win: 0.0 },
   { m: 1020, top: 0x3f7fd0, hor: 0xbfe0ea, fog: 0xcfe0e8, sun: 0xfff2d0, sunI: 1.60, hemi: 0.90, lamp: 0.0, win: 0.0 },
   { m: 1110, top: PALETTE.skyTop, hor: PALETTE.skyHorizon, fog: PALETTE.fog, sun: PALETTE.sun, sunI: 1.10, hemi: 0.55, lamp: 0.35, win: 0.35 },
   { m: 1170, top: 0x141c3a, hor: 0xd96a5a, fog: 0x8a5560, sun: 0xff8a5a, sunI: 0.40, hemi: 0.35, lamp: 0.9, win: 0.8 },
-  { m: 1260, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.10, hemi: 0.22, lamp: 1.0, win: 0.9 },
-  { m: 1440, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.10, hemi: 0.22, lamp: 1.0, win: 0.9 },
+  { m: 1260, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.25, hemi: 0.45, lamp: 1.30, win: 1.20 },
+  { m: 1440, top: 0x070d20, hor: 0x131c38, fog: 0x10182e, sun: 0x8fa8ff, sunI: 0.25, hemi: 0.45, lamp: 1.30, win: 1.20 },
 ];
 
 function lerpKey(a, b, f, out) {
@@ -777,7 +790,7 @@ function init(g) {
   buildSigns(scene);
   buildWaterfront(scene);
   buildLighting(scene);
-  game.world = { districtAt, isOnRoad };
+  game.world = { districtAt, isOnRoad, streets: STREETS };
   update(0); // set initial sun/sky for the starting time (18:52 sunset)
   console.info(`[world] city built: ${buildingCount} buildings, ${palmCount} palms, 3 boats, 6 clouds`);
 }

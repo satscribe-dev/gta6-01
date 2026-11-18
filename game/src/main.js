@@ -26,6 +26,70 @@
   var scene = VR.World.scene;
   var camera = VR.World.camera;
 
+  // ENV-GLOW: colour-grade overlay div (styled in hud.css, sits above
+  // the canvas, below the HUD). Created here because index.html is not
+  // ours to edit; the div itself is inert (pointer-events: none).
+  var gradeEl = document.createElement('div');
+  gradeEl.id = 'vr-grade';
+  document.body.appendChild(gradeEl);
+  var _gradeNight = false;
+  function syncGrade() {
+    var isNight = VR.World.nightness > 0.5;
+    if (isNight !== _gradeNight) {
+      _gradeNight = isNight;
+      if (isNight) gradeEl.classList.add('night');
+      else gradeEl.classList.remove('night');
+    }
+  }
+
+  // ENV-GLOW: headlight glow hook (runtime only — vehicles.js is NOT
+  // edited). Lazily attaches one warm glow sprite per headlight to
+  // every car that lacks one. Sport cars already carry their own
+  // headlight glows in vehicles.js; bikes/boats have no headlights.
+  // Positions are in car body space (nose = +X): the factory puts the
+  // headlight boxes at z = +/-(W/2 - 0.35), y ~0.56.
+  function attachHeadlightGlows() {
+    if (!VR.Vehicles || !VR.Vehicles.all) return;
+    var cars = VR.Vehicles.all;
+    var nightness = VR.World.nightness || 0;
+    // Headlights read at dusk: faint by day, full at night.
+    var op = 0.30 + 0.65 * nightness;
+    for (var i = 0; i < cars.length; i++) {
+      var car = cars[i];
+      if (!car) continue;
+      if (!car._hlGlowDone) {
+        car._hlGlowDone = true;
+        if (car.body && car.spec && car.type !== 'sport' &&
+            car.type !== 'bike' && car.type !== 'boat') {
+          var L = car.spec.L, W = car.spec.W;
+          var glows = [];
+          var g1 = null, g2 = null;
+          if (VR.Effects && VR.Effects.makeGlow) {
+            g1 = VR.Effects.makeGlow(0xfff2c0, 1.1, op);
+            g2 = VR.Effects.makeGlow(0xfff2c0, 1.1, op);
+          } else if (VR.World.makeGlowSprite) {
+            g1 = VR.World.makeGlowSprite(0xfff2c0, 1.1);
+            g2 = VR.World.makeGlowSprite(0xfff2c0, 1.1);
+          }
+          if (g1 && g2) {
+            g1.position.set(L / 2 + 0.30, 0.56, W / 2 - 0.32);
+            g2.position.set(L / 2 + 0.30, 0.56, -(W / 2 - 0.32));
+            car.body.add(g1);
+            car.body.add(g2);
+            glows.push(g1, g2);
+          }
+          car._hlGlows = glows;
+        }
+      }
+      // Fade with the time of day (cheap: a handful of cars).
+      if (car._hlGlows) {
+        for (var j = 0; j < car._hlGlows.length; j++) {
+          car._hlGlows[j].material.opacity = op;
+        }
+      }
+    }
+  }
+
   // Title screen: click the canvas to start playing (also the gesture
   // that lets later slices init audio + pointer lock).
   renderer.domElement.addEventListener('click', function () {
@@ -54,14 +118,20 @@
   }
 
   // ---------- cinematic title orbit (no allocations) ----------
-  var _orbitTarget = new THREE.Vector3(0, 0, 0);
+  // W6 r5: orbit plane raised +25u (y 95 -> 120, target y 0 -> 25) so the
+  // orbit stays clear of the boardwalk palm at (-197.5, 0, 37.2) — the
+  // giant orange trunk seen in the street-level shots. Target raised by
+  // the same 25u, so the view direction (and horizon/skyline/sea framing)
+  // is unchanged; only the orbit plane moves up. Min palm distance
+  // 83.1u -> 107.9u, worst in-frame palm crown 47.6px -> 41.2px.
+  var _orbitTarget = new THREE.Vector3(0, 25, 0);
   var orbitAngle = 0.6;
   function updateTitleCamera(dt) {
     orbitAngle += dt * 0.03;
     var r = 190;
     camera.position.set(
       Math.sin(orbitAngle) * r,
-      95,
+      120,
       Math.cos(orbitAngle) * r
     );
     camera.lookAt(_orbitTarget);
@@ -130,6 +200,8 @@
       steps++;
     }
     if (steps === 5) acc = 0; // drop backlog rather than spiral
+    attachHeadlightGlows();
+    syncGrade();
     renderer.render(scene, camera);
     if (!booted) {
       booted = true;

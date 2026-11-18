@@ -38,6 +38,40 @@
   backdrop-filter: blur(2px);
 }
 
+/* ---------- ENV-GLOW colour grade (above canvas, below HUD) ---------- */
+/* #vr-grade is created by main.js (index.html is not ours to edit).
+   ::before = warm grade in soft-light (orange top, teal shadow bottom),
+   ::after = a soft extra vignette (the page already has #vignette at
+   0.28, so this one stays faint). Night swaps to violet/navy. The
+   WebGL canvas itself gets a gentle contrast + saturation lift; the
+   selector is body > canvas so the minimap / pause-map canvases
+   (nested in divs) are NOT graded. */
+#vr-grade {
+  position: fixed; inset: 0; z-index: 5; pointer-events: none;
+}
+#vr-grade::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg,
+    rgba(255, 140, 50, 0.12) 0%,
+    rgba(255, 140, 50, 0.02) 26%,
+    rgba(0, 0, 0, 0) 55%,
+    rgba(0, 70, 80, 0.10) 100%);
+  mix-blend-mode: soft-light;
+}
+#vr-grade::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center,
+    rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0.16) 100%);
+}
+#vr-grade.night::before {
+  background: linear-gradient(180deg,
+    rgba(120, 90, 255, 0.10) 0%,
+    rgba(120, 90, 255, 0.02) 26%,
+    rgba(0, 0, 0, 0) 55%,
+    rgba(0, 40, 90, 0.12) 100%);
+}
+body > canvas { filter: contrast(1.08) saturate(1.15); }
+
 /* ---------- mission objective, top left ---------- */
 #mission-box {
   position: absolute; top: 14px; left: 14px;

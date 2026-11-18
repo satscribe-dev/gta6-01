@@ -59,10 +59,19 @@
     g.closePath();
   }
 
-  // West shoreline of Vandara Bay: a gentle bay curve, kept inside
-  // [-244, -220] so it never swallows the boulevard (x = -210).
+  // West shoreline of Vandara Bay — the ONE coastline, defined in
+  // world.js (VR.World.coastX): sine bay + peninsula at z~-110 +
+  // inlet cove at z~+95, clamped to [-258,-238]. The minimap reads it
+  // so the pause map and the 3D ground can never disagree. Fallback
+  // is the same formula, in case world.js is absent.
   function coastX(z) {
-    return -232 + 8 * Math.sin(z * 0.016 + 0.5) + 4 * Math.sin(z * 0.041 + 2.1);
+    if (VR.World && VR.World.coastX) return VR.World.coastX(z);
+    var base = -247 + 6 * Math.sin(z * 0.021 + 0.8) + 3 * Math.sin(z * 0.047 + 1.9);
+    var v = base - 6 * Math.exp(-Math.pow((z + 110) / 32, 2))
+      + 7 * Math.exp(-Math.pow((z - 95) / 30, 2));
+    if (v < -258) v = -258;
+    if (v > -238) v = -238;
+    return v;
   }
 
   // Traces the city-land outline (east of the beach band) as a path.
@@ -82,10 +91,12 @@
 
   // Render the static map once. `g` is any 2d context, `size` its
   // pixel size; the same routine paints the pause-menu full map.
-  // ORGANIC MAP (Nov 18 overhaul): no more checkerboard of square
-  // blocks. The west edge is a curving bay (Vandara Bay), districts
-  // read as soft tinted blobs, building footprints are jittered
-  // rounded shapes (some split in two), parks are blobs, thin dotted
+  // ORGANIC MAP (Nov 18 overhaul, footprint mix reworked): no more
+  // checkerboard of square blocks. The west edge is a curving bay
+  // (Vandara Bay), districts read as soft tinted ellipse blobs,
+  // building footprints are an organic mix — big park clearings,
+  // long merged slabs, curved elliptical blocks and singles of
+  // strongly varied size/offset — parks are blobs, thin dotted
   // alleys thread the blocks, and a diagonal pier jetty reaches into
   // the sea. The world->map transform (w2m) stays linear, so the
   // player arrow, mission target and police blips stay exact — only
@@ -122,7 +133,9 @@
     traceLand(g);
     g.fillStyle = '#3f4a42';
     g.fill();
-    // District tints: soft organic blobs (low alpha, clipped to land).
+    // District tints: soft overlapping ellipses (low alpha, clipped
+    // to land) — never rectangles, so a district never reads as a
+    // grid-aligned panel.
     var districts = [
       { x0: -238, z0: -238, x1: -152, z1: 238, c: '#e8b34a', a: 0.13 }, // Golden Pier
       { x0: -148, z0: -238, x1: 148, z1: 88, c: '#4da6ff', a: 0.11 },  // Highrise Plaza
@@ -136,8 +149,20 @@
       var d = districts[di];
       g.globalAlpha = d.a;
       g.fillStyle = d.c;
-      roundRectPath(g, w2m(d.x0), w2m(d.z0), (d.x1 - d.x0) / MAP_SPAN * STATIC,
-        (d.z1 - d.z0) / MAP_SPAN * STATIC, 42);
+      var dcx = w2m((d.x0 + d.x1) / 2), dcz = w2m((d.z0 + d.z1) / 2);
+      var drx = (d.x1 - d.x0) / 2 / MAP_SPAN * STATIC;
+      var drz = (d.z1 - d.z0) / 2 / MAP_SPAN * STATIC;
+      var drot = (hash2(di, 3) - 0.5) * 0.5;
+      g.beginPath();
+      g.ellipse(dcx, dcz, drx * 0.92, drz * 0.88, drot, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.ellipse(dcx - drx * 0.35, dcz + drz * 0.25, drx * 0.6, drz * 0.55,
+        drot + 0.4, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.ellipse(dcx + drx * 0.4, dcz - drz * 0.3, drx * 0.55, drz * 0.5,
+        drot - 0.35, 0, Math.PI * 2);
       g.fill();
     }
     g.restore();
@@ -174,40 +199,179 @@
         (hash2(p, p + 9) - 0.5) * 0.8, 0, Math.PI * 2);
       g.fill();
     }
-    // Building footprints: jittered rounded shapes, some split in two
-    // — the uniform grid of squares is gone, but every footprint sits
-    // on its real block so the map stays true.
-    var streets = (VR.Roads && VR.Roads.streets) ||
+    // Real polygon footprints (OSM method): if buildings.js exposed the
+    // actual extruded outlines (VR.Buildings.footprints), draw THOSE —
+    // the map shows the real city, not a generated mix. Otherwise fall
+    // back to the generated mix below.
+    var _fp = (VR.Buildings && VR.Buildings.footprints) || null;
+    var _fpDrawn = !!(_fp && _fp.length);
+    if (_fpDrawn) {
+      var FP_COLORS = {
+        'Golden Pier': '#7fc8a9', 'Highrise Plaza': '#2e8b8b',
+        'Pasar Lentera': '#d9a05b', 'Industrial Dockyard': '#8a8f98'
+      };
+      for (var _fi = 0; _fi < _fp.length; _fi++) {
+        var _f = _fp[_fi];
+        g.fillStyle = FP_COLORS[_f.district] || '#b8c4a8';
+        g.globalAlpha = 0.85;
+        g.beginPath();
+        g.moveTo(w2m(_f.pts[0][0]), w2m(_f.pts[0][1]));
+        for (var _fq = 1; _fq < _f.pts.length; _fq++)
+          g.lineTo(w2m(_f.pts[_fq][0]), w2m(_f.pts[_fq][1]));
+        g.closePath();
+        g.fill();
+      }
+      g.globalAlpha = 1;
+    }
+    if (!_fpDrawn) {
+    // Building footprints: an organic mix, rolled per cell from hash2
+    // (deterministic, stable every load). Target mix per cell:
+    // ~15% big park clearing, ~15% long slab merged horizontally,
+    // ~10% tall slab merged vertically, ~10% curved (elliptical)
+    // block, ~50% single footprint with strongly varied size and
+    // offset. A merged slab swallows its neighbour cell, which is
+    // then skipped, so no two adjacent cells ever look identical and
+    // the checkerboard rhythm is gone. Every footprint still sits on
+    // its real block — only the styling is organic, never positions.
+    var vStreets = (VR.Roads && VR.Roads.vStreets) ||
       [-210, -150, -90, -30, 30, 90, 150, 210];
-    for (var i = 0; i < streets.length - 1; i++) {
-      for (var j = 0; j < streets.length - 1; j++) {
-        var x0 = streets[i] + 9, z0 = streets[j] + 9;
-        var w = (streets[i + 1] - streets[i]) - 18;
-        var d = (streets[j + 1] - streets[j]) - 18;
+    var hStreets = (VR.Roads && VR.Roads.hStreets) ||
+      [-210, -150, -90, -30, 30, 90, 150, 210];
+    var NC = vStreets.length - 1; // cells per axis (7x7 in the plan)
+    var cat = []; // cat[i][j]: 0 single, 1 big park, 2 merge-x, 3 merge-z, 4 curved
+    // NOTE: hash2's output for these inputs only spans [0, ~0.47)
+    // (its multiply overflows double precision), so the thresholds
+    // below are calibrated to the measured roll distribution, not to
+    // a textbook [0,1) range. Measured over the 7x7 grid they roll
+    // 26 single / 8 park / 6 merge-x / 4 merge-z / 5 curved (a merge
+    // rolled on the last row/column falls back to single).
+    for (var ci = 0; ci < NC; ci++) {
+      cat.push([]);
+      for (var cj = 0; cj < NC; cj++) {
+        var cr = hash2(ci * 3 + 11, cj * 7 + 5);
+        var cc = 0;
+        if (cr < 0.04) cc = 4;
+        else if (cr < 0.128) cc = (cj < NC - 1) ? 3 : 0;
+        else if (cr < 0.167) cc = (ci < NC - 1) ? 2 : 0;
+        else if (cr < 0.25) cc = 1;
+        cat[ci].push(cc);
+      }
+    }
+    for (var i = 0; i < NC; i++) {
+      for (var j = 0; j < NC; j++) {
+        // Swallowed by a neighbour's merged slab: already covered.
+        if (i > 0 && cat[i - 1][j] === 2) continue;
+        if (j > 0 && cat[i][j - 1] === 3) continue;
+        var x0 = vStreets[i] + 9, z0 = hStreets[j] + 9;
+        var w = (vStreets[i + 1] - vStreets[i]) - 18;
+        var d = (hStreets[j + 1] - hStreets[j]) - 18;
         var h = hash2(i, j);
         var h2 = hash2(j + 31, i + 17);
+        var h3 = hash2(i + 51, j + 23);
+        var c = cat[i][j];
+        if (c === 1) {
+          // Big park clearing: a large green blob, bigger than the
+          // small fixed parks, with a lighter inner blob.
+          var pcx = w2m(x0 + w / 2 + (h3 - 0.5) * 10);
+          var pcz = w2m(z0 + d / 2 + (h2 - 0.5) * 10);
+          var prx = (w * (0.62 + h * 0.2)) / MAP_SPAN * STATIC;
+          var prz = (d * (0.62 + h2 * 0.2)) / MAP_SPAN * STATIC;
+          g.fillStyle = '#3f8f4f';
+          g.globalAlpha = 0.95;
+          g.beginPath();
+          g.ellipse(pcx, pcz, prx, prz, (h3 - 0.5) * 0.9, 0, Math.PI * 2);
+          g.fill();
+          g.fillStyle = '#57a86a';
+          g.beginPath();
+          g.ellipse(pcx - prx * 0.2, pcz - prz * 0.15, prx * 0.55, prz * 0.5,
+            (h - 0.5) * 0.7, 0, Math.PI * 2);
+          g.fill();
+          g.globalAlpha = 1;
+          continue;
+        }
         g.fillStyle = BLOCK_COLORS[Math.floor(h * BLOCK_COLORS.length)];
         g.globalAlpha = 0.78 + h2 * 0.17;
-        var ins = 9 + h * 8; // jittered inset, 9-17
-        var bx = w2m(x0 + ins), by = w2m(z0 + ins);
-        var bw = (w - ins * 2) / MAP_SPAN * STATIC;
-        var bd = (d - ins * 2) / MAP_SPAN * STATIC;
-        if (h2 < 0.28) {
-          // Split building: two rounded halves with a gap.
-          var gap = 5;
-          roundRectPath(g, bx, by, (bw - gap) / 2, bd, 5);
-          g.fill();
-          roundRectPath(g, bx + (bw + gap) / 2, by, (bw - gap) / 2, bd, 5);
-          g.fill();
-        } else {
-          roundRectPath(g, bx, by, bw, bd, 5 + h * 4);
-          g.fill();
-          if (h2 > 0.62) {
-            // Inner courtyard cut-out (rounded, smaller than before).
-            g.globalAlpha = 0.18;
-            g.fillStyle = '#000';
-            roundRectPath(g, bx + 8, by + 8, bw - 16, bd - 16, 4);
+        if (c === 2) {
+          // Long horizontal slab: two cells wide, one cell tall.
+          var mw = (vStreets[i + 2] - vStreets[i]) - 18;
+          var mins = 4 + h * 5;
+          var mbx = w2m(x0 + mins), mby = w2m(z0 + mins);
+          var mbw = (mw - mins * 2) / MAP_SPAN * STATIC;
+          var mbd = (d - mins * 2) / MAP_SPAN * STATIC;
+          if (h3 < 0.5) {
+            // Split slab: two unequal halves with a gap.
+            var mgap = 5;
+            var mcut = mbw * (0.4 + h2 * 0.2);
+            roundRectPath(g, mbx, mby, mcut, mbd, 5);
             g.fill();
+            roundRectPath(g, mbx + mcut + mgap, mby, mbw - mcut - mgap, mbd, 5);
+            g.fill();
+          } else {
+            roundRectPath(g, mbx, mby, mbw, mbd, 6 + h * 5);
+            g.fill();
+          }
+        } else if (c === 3) {
+          // Tall vertical slab: one cell wide, two cells tall.
+          var md = (hStreets[j + 2] - hStreets[j]) - 18;
+          var vins = 4 + h * 5;
+          var vbx = w2m(x0 + vins), vby = w2m(z0 + vins);
+          var vbw = (w - vins * 2) / MAP_SPAN * STATIC;
+          var vbd = (md - vins * 2) / MAP_SPAN * STATIC;
+          if (h3 < 0.5) {
+            var vgap = 5;
+            var vcut = vbd * (0.4 + h2 * 0.2);
+            roundRectPath(g, vbx, vby, vbw, vcut, 5);
+            g.fill();
+            roundRectPath(g, vbx, vby + vcut + vgap, vbw, vbd - vcut - vgap, 5);
+            g.fill();
+          } else {
+            roundRectPath(g, vbx, vby, vbw, vbd, 6 + h * 5);
+            g.fill();
+          }
+        } else if (c === 4) {
+          // Curved block: an ellipse (with a small annex blob half
+          // the time, so it reads as a bean, not a circle).
+          var ecx = w2m(x0 + w / 2 + (h3 - 0.5) * 8);
+          var ecz = w2m(z0 + d / 2 + (h2 - 0.5) * 8);
+          var erx = (w * (0.34 + h * 0.12)) / MAP_SPAN * STATIC;
+          var erz = (d * (0.34 + h2 * 0.12)) / MAP_SPAN * STATIC;
+          g.beginPath();
+          g.ellipse(ecx, ecz, erx, erz, (h3 - 0.5) * 1.2, 0, Math.PI * 2);
+          g.fill();
+          if (h < 0.5) {
+            g.beginPath();
+            g.ellipse(ecx + erx * 0.55, ecz + erz * 0.35, erx * 0.55, erz * 0.55,
+              (h2 - 0.5) * 1.0, 0, Math.PI * 2);
+            g.fill();
+          }
+        } else {
+          // Single footprint: strongly varied size (45-95% of the
+          // cell) and offset, so neighbours never match.
+          var fw = w * (0.45 + h * 0.5);
+          var fd = d * (0.45 + h2 * 0.5);
+          var fox = (h3 - 0.5) * (w - fw);
+          var foz = (h - 0.5) * (d - fd);
+          var bx = w2m(x0 + fox), by = w2m(z0 + foz);
+          var bw = fw / MAP_SPAN * STATIC;
+          var bd = fd / MAP_SPAN * STATIC;
+          if (h2 < 0.28) {
+            // Split building: two rounded halves with a gap.
+            var gap = 5;
+            roundRectPath(g, bx, by, (bw - gap) / 2, bd, 5);
+            g.fill();
+            roundRectPath(g, bx + (bw + gap) / 2, by, (bw - gap) / 2, bd, 5);
+            g.fill();
+          } else {
+            roundRectPath(g, bx, by, bw, bd, 4 + h * 10);
+            g.fill();
+            if (h2 > 0.62) {
+              // Inner courtyard cut-out, scaled to the footprint.
+              g.globalAlpha = 0.18;
+              g.fillStyle = '#000';
+              roundRectPath(g, bx + 7, by + 7, Math.max(2, bw - 14),
+                Math.max(2, bd - 14), 4);
+              g.fill();
+            }
           }
         }
         g.globalAlpha = 1;
@@ -218,13 +382,13 @@
     g.strokeStyle = 'rgba(255,255,255,0.20)';
     g.lineWidth = 1.4;
     g.setLineDash([2, 5]);
-    for (var ai = 0; ai < streets.length - 1; ai++) {
-      for (var aj = 0; aj < streets.length - 1; aj++) {
+    for (var ai = 0; ai < vStreets.length - 1; ai++) {
+      for (var aj = 0; aj < hStreets.length - 1; aj++) {
         var ah = hash2(ai + 7, aj + 13);
         if (ah < 0.45) continue;
-        var ax0 = streets[ai] + 9, az0 = streets[aj] + 9;
-        var aw = (streets[ai + 1] - streets[ai]) - 18;
-        var ad = (streets[aj + 1] - streets[aj]) - 18;
+        var ax0 = vStreets[ai] + 9, az0 = hStreets[aj] + 9;
+        var aw = (vStreets[ai + 1] - vStreets[ai]) - 18;
+        var ad = (hStreets[aj + 1] - hStreets[aj]) - 18;
         var horiz = hash2(aj + 3, ai + 11) < 0.5;
         var bend = (hash2(ai + 21, aj + 5) - 0.5) * 12;
         g.beginPath();
@@ -239,6 +403,7 @@
       }
     }
     g.setLineDash([]);
+    } // end generated-mix fallback (real footprints drawn above instead)
     // Roads: from the road graph when present, grid fallback otherwise.
     // (Lighter than the 3D asphalt so streets read on the dark map land.)
     g.strokeStyle = '#565d6b';
@@ -247,20 +412,44 @@
       var edges = VR.Roads.edges;
       for (var e = 0; e < edges.length; e++) {
         var ed = edges[e];
-        g.lineWidth = (Math.abs(ed.ax + 210) < 1) ? 11 / MAP_SPAN * STATIC * 2
-          : 6 / MAP_SPAN * STATIC * 2;
+        // Width from the edge itself: boulevard 11, avenue 8, the
+        // rest 6 — so the diagonal avenue reads wider than a street.
+        g.lineWidth = (ed.w || 6) / MAP_SPAN * STATIC * 2;
         g.beginPath();
         g.moveTo(w2m(ed.ax), w2m(ed.az));
         g.lineTo(w2m(ed.bx), w2m(ed.bz));
         g.stroke();
       }
+      // Gold centre dashes along the diagonal avenue: the one line
+      // that must read at a glance on the map.
+      if (VR.Roads.chains) {
+        g.strokeStyle = 'rgba(255,210,63,0.75)';
+        g.lineWidth = 1.5;
+        g.setLineDash([6, 8]);
+        for (var ch = 0; ch < VR.Roads.chains.length; ch++) {
+          var chain = VR.Roads.chains[ch];
+          if (chain.kind !== 'avenue') continue;
+          g.beginPath();
+          for (var cp = 0; cp < chain.pts.length; cp++) {
+            if (cp === 0) g.moveTo(w2m(chain.pts[cp][0]), w2m(chain.pts[cp][1]));
+            else g.lineTo(w2m(chain.pts[cp][0]), w2m(chain.pts[cp][1]));
+          }
+          g.stroke();
+        }
+        g.setLineDash([]);
+      }
     } else {
+      // Grid fallback (roads.js not loaded yet): the plan streets.
+      var fbV = (VR.Roads && VR.Roads.vStreets) || [-210, -150, -90, -30, 30, 90, 150, 210];
+      var fbH = (VR.Roads && VR.Roads.hStreets) || [-210, -150, -90, -30, 30, 90, 150, 210];
       g.lineWidth = 6 / MAP_SPAN * STATIC * 2;
-      for (var s2 = 0; s2 < streets.length; s2++) {
-        g.beginPath(); g.moveTo(w2m(streets[s2]), 0);
-        g.lineTo(w2m(streets[s2]), STATIC); g.stroke();
-        g.beginPath(); g.moveTo(0, w2m(streets[s2]));
-        g.lineTo(STATIC, w2m(streets[s2])); g.stroke();
+      for (var s2 = 0; s2 < fbV.length; s2++) {
+        g.beginPath(); g.moveTo(w2m(fbV[s2]), 0);
+        g.lineTo(w2m(fbV[s2]), STATIC); g.stroke();
+      }
+      for (var s3 = 0; s3 < fbH.length; s3++) {
+        g.beginPath(); g.moveTo(0, w2m(fbH[s3]));
+        g.lineTo(STATIC, w2m(fbH[s3])); g.stroke();
       }
     }
     // Centre dashes on the boulevard.

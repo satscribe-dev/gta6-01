@@ -25,15 +25,18 @@
       skyNightHorizon: 0x2a1b4a, // night dark purple
       fogHorizon: 0xff9e64,   // fog tinted to match horizon
       sun: 0xffd27a,
-      asphalt: 0x383c46,      // warm grey
-      sidewalk: 0x8a8f98,     // concrete
+      asphalt: 0x3d363b,      // warm plum-tinted asphalt (never neutral grey)
+      sidewalk: 0x9a8d80,     // warm taupe concrete
       sea: 0x1f8f8a,           // turquoise
       sand: 0xe8d5a8,
-      boardwalk: 0x8a5a33,
-      terracotta: 0xc96f4a,
-      sandCream: 0xe8d5a8,
-      mint: 0x7fc8a9,
-      teal: 0x2e8b8b,
+      boardwalk: 0xa8703a,    // rich warm cedar (never mud brown)
+      terracotta: 0xff7a6b,   // saturated coral (was muted terracotta)
+      sandCream: 0xffc93c,    // vivid kuning (was pale cream)
+      coral: 0xff7a6b,         // bold coral accent
+      yellow: 0xffc93c,        // vivid kuning accent
+      pink: 0xff5fa2,          // bold hot-pink accent
+      mint: 0x5fd4b8,          // saturated mint
+      teal: 0x1fb5b0,          // saturated teal
       glassTeal: 0x3fa7c4,
       policeBlack: 0x111318,
       policeWhite: 0xf2f2f2,
@@ -46,25 +49,88 @@
       neonMagenta: 0xff4da6,
       neonYellow: 0xffd23f,
       windowWarm: 0xffc46b,
-      palmTrunk: 0x7a5230,
+      palmTrunk: 0x96603a,    // rich warm brown trunk
       palmLeaf: 0x2f9e5f,
       containerRed: 0xc0392b,
       containerBlue: 0x2471a3,
       containerGreen: 0x1e8449,
-      containerYellow: 0xd4ac0d,
-      containerOrange: 0xca6f1e,
+      containerYellow: 0xffc93c,
+      containerOrange: 0xf07b1d,
       damianShirt: 0x2e86c1,
       damianPants: 0x2c3e50,
       damianSkin: 0xc98d64,
-      damianHair: 0x1a1a1a
+      damianHair: 0x1a1a1a,
+      // ---- W7 district facades (r5): one controlled set per district,
+      // mirrored as data in DISTRICTS.facades below (weights there cap
+      // each facade at ~30% of its district's buildings). ----
+      pierSand: 0xe8d5a8, pierCream: 0xf2e3c6, pierCoral: 0xff8a70, pierTan: 0xd9b380,
+      marketBrick: 0xa84332, marketOchre: 0xd9a441, marketCream: 0xf0d9a0, marketDeepRed: 0x8e2f23,
+      plazaGlassBlue: 0x3f7fb8, plazaGlassGreen: 0x2f6b5a, plazaGlassSlate: 0x6b7f8c, plazaGlassTeal: 0x2e7f8a,
+      dockSteel: 0x8a8f98, dockSteelBlue: 0x6b7c8a, dockRust: 0x8a5a3b, dockDarkSteel: 0x5f6b73,
+      windowDarkBlue: 0x1f3a5f, windowWarmWhite: 0xfff2d9, windowDark: 0x2a2f38,
+      roofBrown: 0x5a4632, tankRust: 0x7a5a40
     },
 
     // ---- Districts (bounds are [minX, maxX, minZ, maxZ]) ----
+    // W7 (r5): each district carries its own facade set + window set.
+    // facades: {c, w, trim, pattern} — c = base colour, w = weight
+    // (no facade exceeds ~30% of its district, enforced by quota in
+    // buildings.js), trim = band/mullion colour, pattern = bands /
+    // brick / grid / corrugated. windows: {c, w, lit} — mixed window
+    // colours, never all yellow; lit ones glow at night.
     DISTRICTS: [
-      { name: 'Golden Pier',        bounds: [-240, -150, -240, 240] },
-      { name: 'Industrial Dockyard', bounds: [150, 240, -240, 240] },
-      { name: 'Pasar Lentera',      bounds: [-150, 150, 90, 240] },
-      { name: 'Highrise Plaza',     bounds: [-150, 150, -240, 90] }
+      { name: 'Golden Pier',        bounds: [-240, -150, -240, 240], accent: 0xff7a6b, // coral
+        facades: [
+          { c: 0xe8d5a8, w: 0.30, trim: 0xff7a6b, pattern: 'bands' },  // sand
+          { c: 0xf2e3c6, w: 0.30, trim: 0xe07856, pattern: 'bands' },  // cream
+          { c: 0xff8a70, w: 0.25, trim: 0xe8d5a8, pattern: 'bands' },  // coral
+          { c: 0xd9b380, w: 0.15, trim: 0x8a6b45, pattern: 'bands' }   // tan
+        ],
+        windows: [
+          { c: 0x1f3a5f, w: 0.40, lit: false }, // dark blue glass
+          { c: 0xfff2d9, w: 0.25, lit: true },  // warm white, lit
+          { c: 0x2a2f38, w: 0.25, lit: false }, // dark
+          { c: 0xffd27a, w: 0.10, lit: true }   // warm yellow, lit
+        ] },
+      { name: 'Industrial Dockyard', bounds: [150, 240, -240, 240],  accent: 0xff6b1a, // safety orange
+        facades: [
+          { c: 0x8a8f98, w: 0.30, trim: 0x5f6b73, pattern: 'corrugated' }, // steel
+          { c: 0x6b7c8a, w: 0.25, trim: 0x3d4a55, pattern: 'corrugated' }, // steel blue
+          { c: 0x8a5a3b, w: 0.25, trim: 0x5f3a26, pattern: 'corrugated' }, // rust
+          { c: 0x5f6b73, w: 0.20, trim: 0x8a8f98, pattern: 'corrugated' }  // dark steel
+        ],
+        windows: [
+          { c: 0x2a2f38, w: 0.50, lit: false }, // dark
+          { c: 0x1f3a5f, w: 0.30, lit: false }, // dark blue glass
+          { c: 0xffd27a, w: 0.10, lit: true },  // warm yellow, lit
+          { c: 0xfff2d9, w: 0.10, lit: true }   // warm white, lit
+        ] },
+      { name: 'Pasar Lentera',      bounds: [-150, 150, 90, 240],    accent: 0xc0392b, // brick red
+        facades: [
+          { c: 0xa84332, w: 0.30, trim: 0x7c2f22, pattern: 'brick' },  // brick red
+          { c: 0xd9a441, w: 0.30, trim: 0x8a6b2f, pattern: 'brick' },  // ochre
+          { c: 0xf0d9a0, w: 0.25, trim: 0xc0392b, pattern: 'brick' },  // warm cream
+          { c: 0x8e2f23, w: 0.15, trim: 0xd9a441, pattern: 'brick' }   // deep red
+        ],
+        windows: [
+          { c: 0x1f3a5f, w: 0.35, lit: false }, // dark blue glass
+          { c: 0xffe9b0, w: 0.30, lit: true },  // warm lit (market glows)
+          { c: 0x2a2f38, w: 0.20, lit: false }, // dark
+          { c: 0xffc46b, w: 0.15, lit: true }   // warm yellow, lit
+        ] },
+      { name: 'Highrise Plaza',     bounds: [-150, 150, -240, 90],   accent: 0x37e0ff, // neon cyan
+        facades: [
+          { c: 0x3f7fb8, w: 0.30, trim: 0x1c2f3a, pattern: 'grid' }, // glass blue
+          { c: 0x2f6b5a, w: 0.30, trim: 0x14261f, pattern: 'grid' }, // glass green
+          { c: 0x6b7f8c, w: 0.25, trim: 0x2c313a, pattern: 'grid' }, // glass slate
+          { c: 0x2e7f8a, w: 0.15, trim: 0x14333a, pattern: 'grid' }  // glass teal
+        ],
+        windows: [
+          { c: 0x274b63, w: 0.45, lit: false }, // dark blue glass
+          { c: 0x1a2530, w: 0.30, lit: false }, // dark
+          { c: 0xfff2d9, w: 0.15, lit: true },  // warm white, lit
+          { c: 0xcfe8ff, w: 0.10, lit: true }   // cool white, lit
+        ] }
     ],
 
     // ---- Weapons (data-driven; VR.Combat reads this) ----
@@ -79,12 +145,12 @@
     // ---- Vehicles (7 types) ----
     VEHICLES: {
       sport: { name: 'Apex GT',   topSpeed: 52, accel: 26, brake: 42, grip: 3.4, steer: 1.9, color: 0x0e7c7b, seats: 2,  hp: 100 },
-      sedan: { name: 'Aurum S',   topSpeed: 38, accel: 18, brake: 32, grip: 3.0, steer: 1.6, color: 0x8a8f98, seats: 4,  hp: 100 },
+      sedan: { name: 'Aurum S',   topSpeed: 38, accel: 18, brake: 32, grip: 3.0, steer: 1.6, color: 0x8b98a8, seats: 4,  hp: 100 },
       taxi:  { name: 'Bay Taxi',  topSpeed: 36, accel: 17, brake: 32, grip: 3.0, steer: 1.6, color: 0xf7c948, seats: 4,  hp: 100 },
       suv:   { name: 'Jungle X',  topSpeed: 40, accel: 19, brake: 30, grip: 2.8, steer: 1.4, color: 0x3d5a80, seats: 5,  hp: 140 },
-      truck: { name: 'Harbor Haul', topSpeed: 30, accel: 12, brake: 26, grip: 2.4, steer: 1.1, color: 0xc96f4a, seats: 2,  hp: 180 },
+      truck: { name: 'Harbor Haul', topSpeed: 30, accel: 12, brake: 26, grip: 2.4, steer: 1.1, color: 0xff7a6b, seats: 2,  hp: 180 },
       bike:  { name: 'Thunder R', topSpeed: 46, accel: 24, brake: 36, grip: 2.6, steer: 2.4, color: 0xc0392b, seats: 2,  hp: 60 },
-      boat:  { name: 'Hydrofoil', topSpeed: 48, accel: 20, brake: 20, grip: 2.0, steer: 1.3, color: 0xe8e8e8, seats: 4,  hp: 120 }
+      boat:  { name: 'Hydrofoil', topSpeed: 48, accel: 20, brake: 20, grip: 2.0, steer: 1.3, color: 0xeaf2f0, seats: 4,  hp: 120 }
     },
 
     // ---- Missions (8, in story order) ----

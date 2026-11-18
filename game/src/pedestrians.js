@@ -25,10 +25,11 @@
 
   // Limbs are tapered cylinders (smooth), never boxes. Signature kept:
   // w = limb width (diameter); d is unused, kept for the callers.
+  // v4: taper runs shoulder->wrist / hip->ankle (wide end at the joint).
   function makeLimb(w, h, d, mat, px, py, pz) {
     var pivot = new THREE.Group();
     pivot.position.set(px, py, pz);
-    var m = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.42, w * 0.5, h, 12), mat);
+    var m = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.5, w * 0.42, h, 12), mat);
     m.position.y = -h / 2;
     m.castShadow = true;
     pivot.add(m);
@@ -41,39 +42,141 @@
     var pants = std(pick(PANTS));
     var skin = std(pick(SKINS));
 
-    // Torso: flattened capsule with rounded shoulders, never a box.
-    var torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.23, 0.16, 6, 14), shirt);
-    torso.position.y = 1.12;
+    // Torso: TAPERED cylinder (v5) — shoulders 0.29 wide, waist 0.15 —
+    // flattened front-to-back, never a box. Shoulder caps + belt +
+    // backpack give the same costume read as Damian, simpler.
+    var torso = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.15, 0.55, 10), shirt);
+    torso.position.y = 1.15;
     torso.scale.set(1, 1, 0.62);
     torso.castShadow = true;
     g.add(torso);
+    var capGeo = new THREE.SphereGeometry(0.12, 10, 8);
+    [-0.27, 0.27].forEach(function (x) {
+      var cap = new THREE.Mesh(capGeo, shirt);
+      cap.position.set(x, 1.38, 0);
+      cap.castShadow = true;
+      g.add(cap);
+    });
+    var belt = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.09, 12), std(0x222222, 0.85));
+    belt.position.y = 0.92;
+    belt.scale.set(1, 1, 0.62);
+    belt.castShadow = true;
+    g.add(belt);
+    // Collar ring + round pockets (v5): the jacket details must read.
+    var collar = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.03, 8, 12), std(0x222222, 0.85));
+    collar.rotation.x = Math.PI / 2;
+    collar.position.y = 1.44;
+    g.add(collar);
+    [-0.10, 0.10].forEach(function (x) {
+      var pk = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), std(0x222222, 0.85));
+      pk.scale.set(1.1, 1.1, 0.45);
+      pk.position.set(x, 1.05, 0.13);
+      g.add(pk);
+    });
+    var pack = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), std(0x4a3524, 0.95));
+    pack.scale.set(1, 1.2, 0.5);
+    pack.position.set(0, 1.2, -0.19);
+    pack.castShadow = true;
+    g.add(pack);
 
     var head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), skin);
     head.position.y = 1.62;
     head.castShadow = true;
     g.add(head);
+    // Eyes (v4): small WHITE spheres + dark pupils, like Damian.
+    var eyeW = std(0xffffff, 0.4);
+    [-0.06, 0.06].forEach(function (x) {
+      var w = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), eyeW);
+      w.position.set(x, 1.64, 0.14);
+      g.add(w);
+      var pu = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), std(0x222222, 0.85));
+      pu.position.set(x, 1.64, 0.18);
+      g.add(pu);
+    });
     // hair cap
     var hair = new THREE.Mesh(new THREE.SphereGeometry(0.175, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
       std(pick([0x1a1a1a, 0x3a2a1a, 0x5a5a5a, 0x2a1a0a]), 0.9));
     hair.position.y = 1.65;
     g.add(hair);
+    // hair crest (v4, same recipe as Damian, smaller) + bangs
+    var crest = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), hair.material);
+    crest.scale.set(1, 0.5, 1.8);
+    crest.position.set(0, 1.8, 0);
+    g.add(crest);
+    [-0.07, 0.07].forEach(function (x) {
+      var bang = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), hair.material);
+      bang.position.set(x, 1.74, 0.09);
+      g.add(bang);
+    });
 
-    var legL = makeLimb(0.16, 0.78, 0.18, pants, -0.12, 0.82, 0);
-    var legR = makeLimb(0.16, 0.78, 0.18, pants, 0.12, 0.82, 0);
-    var armL = makeLimb(0.12, 0.6, 0.14, shirt, -0.30, 1.38, 0);
-    var armR = makeLimb(0.12, 0.6, 0.14, shirt, 0.30, 1.38, 0);
-    g.add(legL); g.add(legR); g.add(armL); g.add(armR);
-    // Rounded hands and shoes (spheres), never boxes.
-    var handGeo = new THREE.SphereGeometry(0.06, 10, 8);
-    var handL = new THREE.Mesh(handGeo, skin); handL.position.y = -0.62; armL.add(handL);
-    var handR = new THREE.Mesh(handGeo, skin); handR.position.y = -0.62; armR.add(handR);
+    // Legs (v6 — rig proportions): hip pivot (thigh) + KNEE pivot
+    // (shin + shoe), so the knee visibly bends during the stride
+    // instead of the leg hanging as one straight tube. Hip raised
+    // 0.82 -> 0.90 so the legs are ~49% of the figure (0.90 of
+    // ~1.85 total); thigh + shin 0.43 each.
     var shoeGeo = new THREE.SphereGeometry(0.09, 10, 8);
-    var shoeMat = std(0x222222);
-    var shoeL = new THREE.Mesh(shoeGeo, shoeMat);
-    shoeL.scale.set(1, 0.55, 1.4); shoeL.position.set(0, -0.78, 0.03); legL.add(shoeL);
-    var shoeR = new THREE.Mesh(shoeGeo, shoeMat);
-    shoeR.scale.set(1, 0.55, 1.4); shoeR.position.set(0, -0.78, 0.03); legR.add(shoeR);
-    return { group: g, legL: legL, legR: legR, armL: armL, armR: armR };
+    var shoeMat = std(0xf2f2f2, 0.6); // white shoes
+    var soleGeo = new THREE.SphereGeometry(0.09, 10, 8);
+    var soleMat = std(0x222222, 0.85);
+    var kneeMat = std(0x3d5266, 0.85); // knee cap: lighter navy
+    function buildPedLeg(m) {
+      var hip = makeLimb(0.16, 0.43, 0.18, pants, m * 0.12, 0.90, 0);
+      var knee = new THREE.Group();
+      knee.position.set(0, -0.43, 0);
+      knee.rotation.x = 0.15;
+      var cap = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), kneeMat);
+      knee.add(cap);
+      var shin = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.43, 10), pants);
+      shin.position.y = -0.215;
+      shin.castShadow = true;
+      knee.add(shin);
+      var ankle = new THREE.Group();
+      ankle.position.set(0, -0.43, 0);
+      var shoe = new THREE.Mesh(shoeGeo, shoeMat);
+      shoe.scale.set(1, 0.55, 1.4); shoe.position.set(0, 0, 0.03); ankle.add(shoe);
+      var sole = new THREE.Mesh(soleGeo, soleMat);
+      sole.scale.set(1, 0.3, 1.4); sole.position.set(0, -0.02, 0.03); ankle.add(sole);
+      knee.add(ankle);
+      hip.add(knee);
+      g.add(hip);
+      return { hip: hip, knee: knee };
+    }
+    var _legL = buildPedLeg(-1), _legR = buildPedLeg(1);
+    var legL = _legL.hip, legR = _legR.hip;
+    var kneeL = _legL.knee, kneeR = _legR.knee;
+    // Arms (v4): upper arm pivot at the shoulder + a separate
+    // forearm on an ELBOW pivot group, so the arm bends at the
+    // elbow instead of hanging as one tube.
+    var armL = makeLimb(0.12, 0.32, 0.14, shirt, -0.30, 1.38, 0);
+    var armR = makeLimb(0.12, 0.32, 0.14, shirt, 0.30, 1.38, 0);
+    armL.rotation.z = -0.15; // slight outward rest tilt (v5)
+    armR.rotation.z = 0.15;
+    function addForearm(arm, m) {
+      var elbow = new THREE.Group();
+      elbow.position.set(0, -0.32, 0);
+      elbow.rotation.z = -0.15 * m; // permanent inward kink (v5)
+      var fore = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.045, 0.28, 10), shirt);
+      fore.position.y = -0.14;
+      fore.castShadow = true;
+      elbow.add(fore);
+      var cap = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), shirt);
+      elbow.add(cap);
+      // Mitten hand: flattened palm + thumb bump.
+      var hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), skin);
+      hand.scale.set(1, 1.3, 0.75);
+      hand.position.set(0, -0.30, 0.01);
+      elbow.add(hand);
+      var thumb = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), skin);
+      thumb.position.set(m * 0.05, -0.27, 0.05);
+      elbow.add(thumb);
+      elbow.rotation.x = -0.3; // slight permanent bend
+      arm.add(elbow);
+      return elbow;
+    }
+    var elbowL = addForearm(armL, -1);
+    var elbowR = addForearm(armR, 1);
+    g.add(armL); g.add(armR);
+    return { group: g, legL: legL, legR: legR, kneeL: kneeL, kneeR: kneeR, armL: armL, armR: armR, elbowL: elbowL, elbowR: elbowR };
   }
 
   function alarmSource() {
@@ -108,6 +211,7 @@
     if (VR.World && VR.World.scene) VR.World.scene.add(parts.group);
     var ped = {
       group: parts.group, legL: parts.legL, legR: parts.legR,
+      kneeL: parts.kneeL, kneeR: parts.kneeR,
       armL: parts.armL, armR: parts.armR,
       x: p.x, z: p.z, yaw: rand(0, Math.PI * 2),
       phase: rand(0, Math.PI * 2),
@@ -152,6 +256,7 @@
       ped.armR.rotation.x = Math.sin(ped.bob * 1.7) * 0.5 - 0.2;
       ped.armL.rotation.x = Math.sin(ped.bob * 1.3 + 1) * 0.3 - 0.1;
       ped.legL.rotation.x = 0; ped.legR.rotation.x = 0;
+      ped.kneeL.rotation.x = 0.15; ped.kneeR.rotation.x = 0.15;
       ped.wait -= dt;
       if (ped.wait <= 0) { ped.wait = rand(6, 18); pickTarget(ped); }
       return;
@@ -166,6 +271,7 @@
         ped.wait -= dt;
         // idle: tiny sway
         ped.legL.rotation.x = 0; ped.legR.rotation.x = 0;
+        ped.kneeL.rotation.x = 0.15; ped.kneeR.rotation.x = 0.15;
         ped.armL.rotation.x = Math.sin(t * 1.2 + ped.phase) * 0.05;
         ped.armR.rotation.x = -Math.sin(t * 1.2 + ped.phase) * 0.05;
         if (ped.wait <= 0) {
@@ -193,12 +299,15 @@
       ped.x = nx; ped.z = nz;
     }
 
-    // limb swing
+    // limb swing — hips swing, knees bend when their leg swings
+    // forward (v5: the knee pivot must visibly work, not just exist).
     var freq = ped.state === 'flee' ? 11 : 6.5;
     ped.phase += dt * freq;
     var sw = Math.sin(ped.phase) * (ped.state === 'flee' ? 0.85 : 0.55);
     ped.legL.rotation.x = sw;
     ped.legR.rotation.x = -sw;
+    ped.kneeL.rotation.x = 0.15 + Math.max(0, sw) * 0.5;
+    ped.kneeR.rotation.x = 0.15 + Math.max(0, -sw) * 0.5;
     ped.armL.rotation.x = -sw * 0.8;
     ped.armR.rotation.x = sw * 0.8;
     g.position.set(ped.x, 0, ped.z);

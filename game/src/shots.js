@@ -6,6 +6,14 @@
 // main.js has built VR.State (this file loads before main.js, so it
 // polls for the boot with requestAnimationFrame).
 //
+// Polish baselines (Slice F2): ?shot=car-day-closeup|car-night-wet|
+// downtown-glass|beach-sunset|night-market stage five extra frames
+// for the colour/shine polish pass. They are NOT in shots.json —
+// they live only in tools/shots-polish.cjs and screenshots-polish/.
+// Unlike the driving shots they use a static camera (parked car /
+// standing player, re-asserted after VR.Player.update every frame),
+// no police, no mission: __shotReady is a settle gate only.
+//
 // Rules this file lives by:
 //  * It never touches window.__gameReady (main.js owns that, set after
 //    the first rendered frame).
@@ -34,7 +42,12 @@
 
   var qs = new URLSearchParams(window.location.search);
   var shot = qs.get('shot') || '';
-  var KNOWN = { cover: true, night: true, combat: true, map: true };
+  var KNOWN = { cover: true, night: true, combat: true, map: true,
+    'car-day-closeup': true, 'car-night-wet': true, 'downtown-glass': true,
+    'beach-sunset': true, 'night-market': true };
+  // Polish-baseline shots: static camera, no driving, no police.
+  var POLISH = { 'car-day-closeup': true, 'car-night-wet': true,
+    'downtown-glass': true, 'beach-sunset': true, 'night-market': true };
 
   var staged = false;
   var shotReady = false;
@@ -55,6 +68,42 @@
   var vehWrapped = false;
   var playerWrapped = false;
   var _camLook = null;
+
+  // Polish static camera: fixed pose, re-asserted after
+  // VR.Player.update every frame so neither the on-foot over-shoulder
+  // nor the in-car chase camera can drag it away.
+  var staticWrapped = false;
+  var staticPos = null;
+  var staticLook = null;
+  function installStaticCam(px, py, pz, lx, ly, lz) {
+    staticPos = new THREE.Vector3(px, py, pz);
+    staticLook = new THREE.Vector3(lx, ly, lz);
+    if (staticWrapped || !VR.Player) return;
+    staticWrapped = true;
+    var origPlayerUpdate = VR.Player.update;
+    VR.Player.update = function (dt) {
+      origPlayerUpdate(dt);
+      if (staticPos && POLISH[shot]) {
+        var cam = VR.World.camera;
+        cam.position.copy(staticPos);
+        cam.lookAt(staticLook);
+      }
+    };
+  }
+
+  // Count pedestrians within r units of (x, z) — night-market crowd gate.
+  function countPedsNear(x, z, r) {
+    if (!VR.Peds || !VR.Peds.list) return 0;
+    var n = 0, r2 = r * r;
+    var list = VR.Peds.list;
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p) continue;
+      var dx = p.x - x, dz = p.z - z;
+      if (dx * dx + dz * dz < r2) n++;
+    }
+    return n;
+  }
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
   function wrapAngle(a) {
@@ -315,6 +364,70 @@
     }, 2500);
   }
 
+  // ---- polish-baseline staging (static camera, parked / standing) ----
+  function stageCarDayCloseup() {
+    enterPlay();
+    setClock(16 * 60 + 30, false); // bright afternoon, sun still over the sea
+    var z = clearSpawn(-210, -40); // Golden Pier boulevard, southbound
+    makeHero(-210, z, 0);
+    // Low, close, rear three-quarter from the east-behind side: the
+    // teal Apex GT fills the lower frame, sea + boardwalk palms behind.
+    // (No driving: the car stays parked; stock Vehicles.update holds
+    // it at speed 0 with empty keyboard input.)
+    installStaticCam(-205.8, 1.35, z - 4.2, -210.2, 1.0, z + 1.2);
+  }
+
+  function stageCarNightWet() {
+    enterPlay();
+    setClock(21 * 60 + 30, true); // full night, neon + lanterns at full glow
+    var z = clearSpawn(-90, 150); // Pasar Lentera avenue
+    makeHero(-90, z, Math.PI); // nose north, LED headlights toward the camera
+    // Low front three-quarter from the north-east: headlights face the
+    // lens, market tents + lantern glow behind the car.
+    installStaticCam(-86, 1.5, z - 7, -90.3, 1.0, z + 0.5);
+  }
+
+  function stageDowntownGlass() {
+    enterPlay();
+    setClock(18 * 60 + 52, false); // golden hour, glass teal + warm sky
+    VR.Player.pos.set(30, 0, 150);
+    VR.Player.yaw = Math.PI; // face north up the Highrise avenue
+    // High above the street, looking north down the x=30 canyon:
+    // glass towers flank both sides, crowns + sky across the top.
+    // (Player stands 2 units south of the camera, ~50 below it, so
+    // he stays out of frame.)
+    installStaticCam(30, 50, 152, 30, 26, -90);
+  }
+
+  function stageBeachSunset() {
+    enterPlay();
+    setClock(18 * 60 + 52, false); // golden hour, sun low over the sea
+    VR.Player.pos.set(-216, 0, 30);
+    VR.Player.yaw = -Math.PI / 2; // face west, out to sea
+    // Raised vantage on the boardwalk (6.5 up), looking west-northwest
+    // into the sun: boardwalk planks at the bottom, sand band, turquoise
+    // sea, sun glow + peach sky. (v1 sat at 2.6 and the grazing-angle
+    // sand filled half the frame as a featureless beige slab.)
+    // (Camera sits 4 units north of the player, who ends up ~55 deg
+    // below the view axis, out of frame.)
+    installStaticCam(-214, 6.5, 34, -290, 3, -12);
+  }
+
+  function stageNightMarket() {
+    enterPlay();
+    setClock(21 * 60 + 30, true); // full night, lanterns + windows at full glow
+    VR.Player.pos.set(-36, 0, 140);
+    VR.Player.yaw = -Math.PI / 2; // face west, into the market block
+    // Measured tent positions (scene-graph probe, 18 Nov): the tent
+    // at (-47.7, 132.1) has open ground east of it — nearest shophouse
+    // is 19.6 units west — so the sightline from the x=-30 street is
+    // clear, with a second tent (-73.2, 115.9) behind it to the left.
+    // (v1 looked straight east from x=-90 into a shophouse wall;
+    // v2's diagonal crossed the block but the tents sat off-axis.)
+    // Camera sits north of the player, who ends up ~59 deg off-axis.
+    installStaticCam(-32, 2.6, 127, -48, 2.0, 131);
+  }
+
   // ---- readiness + staging tick (real time, 200 ms) ----
   function dialogueDone() {
     return !VR.HUD || VR.HUD.dialogueComplete;
@@ -355,6 +468,22 @@
           mapFrames++;
           if (mapFrames >= 3) setReady();
         }
+      } else if (POLISH[shot]) {
+        // Static camera: the frame is final from the first rendered
+        // frame, so readiness is only a settle gate (peds pinned,
+        // glows faded in). No mission runs, so dialogueComplete is
+        // already true; the gate is just wall-clock time.
+        var elapsed = performance.now() - stageRealAt;
+        if (shot === 'car-day-closeup' || shot === 'car-night-wet') {
+          if (heroCar) pinPeds(heroCar.x, heroCar.z, heroCar.yaw);
+        } else if (shot === 'night-market') {
+          if (VR.Player) pinPeds(VR.Player.pos.x, VR.Player.pos.z, VR.Player.yaw);
+        }
+        // Night-market also waits for a visible crowd (2+ peds near
+        // the (-47.7, 132.1) tent) unless 25 s have passed.
+        var crowdOk = shot !== 'night-market' ||
+          countPedsNear(-48, 132, 40) >= 2 || elapsed > 25000;
+        if (elapsed > 8000 && dialogueDone() && crowdOk) setReady();
       }
     } catch (e) {
       if (typeof console !== 'undefined' && console.error) {
@@ -372,6 +501,11 @@
       else if (shot === 'night') stageNight();
       else if (shot === 'combat') stageCombat();
       else if (shot === 'map') stageMap();
+      else if (shot === 'car-day-closeup') stageCarDayCloseup();
+      else if (shot === 'car-night-wet') stageCarNightWet();
+      else if (shot === 'downtown-glass') stageDowntownGlass();
+      else if (shot === 'beach-sunset') stageBeachSunset();
+      else if (shot === 'night-market') stageNightMarket();
     } catch (e) {
       if (typeof console !== 'undefined' && console.error) {
         console.error('VR.Shots stage failed: ' + (e && e.message ? e.message : e));

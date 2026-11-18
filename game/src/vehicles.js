@@ -114,14 +114,18 @@
   var TIRE = 0x161616, RIM = 0xcfd6dd, GLASS = 0x0e2230, DARK = 0x1c1f24;
   var tireMat = std(TIRE, 0.92, 0.0);
   var rimMat = std(RIM, 0.35, 0.6);
+  // Hero chrome: mid-grey alloy (was 0xeef4f8 — golden hour pulled it
+  // cream, so the wheel read as a flat cream disc). Darker + rougher
+  // so the spokes read against it.
+  var chromeRimMat = std(0xa9b4bc, 0.30, 0.9);
   var glassMat = std(GLASS, 0.12, 0.35);
   var darkMat = std(DARK, 0.7, 0.1);
   var headMat = std(0xfff6d8, 0.3, 0.1, { emissive: 0xfff2c0, emissiveIntensity: 2.2 });
   var tailMat = std(0xff2a2a, 0.3, 0.1, { emissive: 0xff1a1a, emissiveIntensity: 2.6 });
 
   var SPECS = {
-    sport: { L: 4.5, W: 1.95, wheelR: 0.37, wheelW: 0.34, maxSpeed: 44, accel: 20,
-             reverse: 11, wheelbase: 2.7, colors: [0x1fd6c1], spoiler: true, wide: true },
+    sport: { L: 4.5, W: 1.95, wheelR: 0.42, wheelW: 0.36, maxSpeed: 44, accel: 20,
+             reverse: 11, wheelbase: 2.7, colors: [0x00f0d0], spoiler: true, wide: true },
     sedan: { L: 4.4, W: 1.85, wheelR: 0.35, wheelW: 0.26, maxSpeed: 31, accel: 14,
              reverse: 10, wheelbase: 2.7, colors: [0xd96a4a, 0x3f6fd1, 0xe8e4d8, 0x7fd1a8] },
     taxi:  { L: 4.4, W: 1.85, wheelR: 0.35, wheelW: 0.26, maxSpeed: 31, accel: 14,
@@ -136,7 +140,7 @@
              reverse: 6, wheelbase: 4.5, colors: [0xf2f0e8] }
   };
 
-  function makeWheel(r, w, front) {
+  function makeWheel(r, w, front, hero) {
     var pivot = new THREE.Group();
     // Base yaw PI/2: the tyre cylinder's axle (local z after rotX) must lie
     // along the car's lateral (x) axis; front wheels add steer on top.
@@ -144,13 +148,20 @@
     var spin = new THREE.Group();
     var tyre = cyl(r, r, w, tireMat, 0, 0, 0, 18);
     tyre.rotation.x = Math.PI / 2;
-    var hub = cyl(r * 0.55, r * 0.55, w + 0.02, rimMat, 0, 0, 0, 10);
+    // Hero wheels: small hub (was 0.66r — it swallowed the spokes) +
+    // 5 long thin spokes so the rim reads as a star, not a solid disc.
+    var rim = hero ? chromeRimMat : rimMat;
+    var hub = cyl(r * (hero ? 0.36 : 0.55), r * (hero ? 0.36 : 0.55), w + 0.02, rim, 0, 0, 0, 10);
     hub.rotation.x = Math.PI / 2;
     spin.add(tyre); spin.add(hub);
-    // 3 spokes so the spin is visible
-    for (var i = 0; i < 3; i++) {
-      var sp = box(w + 0.04, r * 1.5, 0.07, rimMat, 0, 0, 0);
-      sp.rotation.z = i * Math.PI / 3;
+    // spokes so the spin is visible (3 traffic, 5 hero). Box axes:
+    // x = thin in-plane width, y = radial length, z = axle span
+    // (was x = w+0.04 / z = 0.07 — fat in-plane paddles that overlapped
+    // into a disc). Hero spokes reach 0.90r, nearly to the tyre edge.
+    var nSp = hero ? 5 : 3;
+    for (var i = 0; i < nSp; i++) {
+      var sp = box(hero ? 0.12 : 0.14, r * (hero ? 1.8 : 1.5), w + 0.04, rim, 0, 0, 0);
+      sp.rotation.z = i * Math.PI / nSp;
       spin.add(sp);
     }
     pivot.add(spin);
@@ -171,103 +182,247 @@
   // 0.78 turned the teal black), so the teal stays bright and pops.
   function buildSport(body, spec, paint) {
     var L = spec.L, W = spec.W;
-    // Hero paint: bright teal, clearcoat shine, moderate metalness.
+    // Visual length VL: the shell is stretched ~+25% over the physics
+    // envelope (spec.L stays 4.5, so wheel stations +/-1.40, wheelbase
+    // 2.7 and the collision probe are untouched — only the nose/tail
+    // overhangs grow, which is exactly what makes it read long-low).
+    // Outer envelope: length 5.62, width 1.934, deck top 0.72,
+    // dome top 1.07, wing top 1.36. Roofline ~15% lower than the
+    // pre-v1 build (glass peak 1.16 -> dome 1.07) for a low fastback
+    // read: length 5.62 vs roof height 1.07, a ~5.25:1 silhouette.
+    var VL = 5.62, HL = VL / 2; // HL = 2.81, visual half-length
+    // Hero paint: bright saturated cyan, clearcoat shine, moderate metalness.
     var heroPaint = new THREE.MeshPhysicalMaterial({
       color: paint.color, roughness: 0.28, metalness: 0.45,
       clearcoat: 0.9, clearcoatRoughness: 0.22, flatShading: false
     });
     // Envelope note: the bevel expands the shell by bevelSize in the
     // profile plane and bevelThickness across the width, so every
-    // profile below is inset by exactly that amount. Outer envelope
-    // stays identical to the previous build: length 4.62, width 1.934,
-    // body top 0.80, body bottom 0.10, glass top 1.24, wing top 1.34.
+    // profile below is inset by exactly that amount.
     // Lower body: one continuous spline — low nose rising along the
-    // hood into the rear deck — with a deep 0.15/0.12 bevel so the
-    // whole shell rolls instead of creasing.
+    // hood into the rear deck, tail dropping into a fastback — with a
+    // deep 0.15/0.12 bevel so the whole shell rolls instead of creasing.
     body.add(profileBodyCurved([
-      [2.13, 0.40], [1.05, 0.56], [0.25, 0.64], [-1.55, 0.68], [-2.13, 0.62]
-    ], 0.22, W * 0.92 - 0.16, heroPaint, 0.15, 0.12));
-    // Glass cockpit: a low curved canopy, spline top edge, beveled.
-    body.add(profileBodyCurved([
-      [0.93, 0.78], [0.30, 1.16], [-0.85, 1.16], [-1.43, 0.78]
-    ], 0.72, W * 0.78 - 0.02, glassMat, 0.08, 0.08));
+      [2.69, 0.36], [1.30, 0.52], [0.30, 0.58], [-1.90, 0.60], [-2.69, 0.50]
+    ], 0.18, W * 0.92 - 0.16, heroPaint, 0.15, 0.12));
+    // Glass cockpit: a DOME, not an extruded slab — a sphere segment
+    // (recipe: SphereGeometry(0.48, 20, 12, 0, 2PI, 0, 0.52PI), scaled)
+    // so the canopy reads as a curved glasshouse from every angle.
+    // Radius 1.0, scale (1.45, 0.42, 0.78): footprint 2.90 x 1.56,
+    // peak 1.07 — the same low roofline as the v1 build (was 1.16).
+    // The rim sits just inside the deck (base y 0.62 vs deck 0.64-0.72)
+    // so it never floats or gaps.
+    var heroGlass = new THREE.MeshPhysicalMaterial({
+      color: 0x0e2230, roughness: 0.08, metalness: 0.15,
+      clearcoat: 1.0, clearcoatRoughness: 0.08, flatShading: false
+    });
+    var dome = new THREE.Mesh(
+      new THREE.SphereGeometry(1.0, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+      heroGlass);
+    dome.scale.set(1.45, 0.42, 0.78);
+    dome.position.set(-0.25, 0.62, 0);
+    dome.castShadow = true;
+    dome.name = 'cockpitGlass';
+    body.add(dome);
     // Wheel-arch fenders: half-torus rings that bulge outboard of the
     // flanks and hug each tyre, so the arches read as real fenders from
     // every angle. TorusGeometry already lies in the x-y plane (car
-    // length x height), and arc PI is exactly the top half.
+    // length x height), and arc PI is exactly the top half. Stations
+    // stay +/-1.40 (wheel positions unchanged); radius grows 0.44 ->
+    // 0.50 for the bigger 0.42 wheels.
+    // Wheel-arch fenders: half-torus rings sunk INTO the flanks
+    // (z 0.90, tube 0.07 — outer face 0.97, flush with the shell flank
+    // ~0.97; was z 1.00 / tube 0.09, sticking outboard of the body so
+    // the bright ring read as a loose hoop / lifebuoy floating around
+    // the tyre). Radius 0.48 hugs the 0.42 tyre tighter.
     var fender = std(paint.color, 0.35, 0.35);
-    [[1.40, 1.00], [1.40, -1.00], [-1.40, 1.00], [-1.40, -1.00]].forEach(function (p) {
-      var arch = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.09, 10, 24, Math.PI), fender);
-      arch.position.set(p[0], 0.38, p[1]);
+    [[1.40, 0.90], [1.40, -0.90], [-1.40, 0.90], [-1.40, -0.90]].forEach(function (p) {
+      var arch = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.07, 10, 24, Math.PI), fender);
+      arch.position.set(p[0], 0.42, p[1]);
       arch.castShadow = true;
       body.add(arch);
     });
     // Fender haunches: flattened spheres over each wheel that flare
     // outboard of the flanks, so the fenders read as sculpted muscle
     // instead of flat slab sides. They stay inside the wheel envelope
-    // (outer face 1.09 vs tyre outer 1.065) and below the deck line.
+    // (outer face 1.11 vs tyre outer 1.075) and below the deck line.
     [[1.40, 0.92], [1.40, -0.92], [-1.40, 0.92], [-1.40, -0.92]].forEach(function (p) {
-      var haunch = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 12), fender);
+      var haunch = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), fender);
       haunch.scale.set(1.05, 0.5, 0.34);
-      haunch.position.set(p[0], 0.40, p[1]);
+      haunch.position.set(p[0], 0.44, p[1]);
       haunch.castShadow = true;
       body.add(haunch);
     });
-    // Side mirrors: thin cylinder stalks + rounded housings.
+    // Side mirrors: thin cylinder stalks + rounded housings, mounted
+    // low on the dome flanks (dome half-width is 0.73 at y 0.72, so the
+    // stalks bridge from the glass to the housings).
     [1, -1].forEach(function (side) {
-      var stalk = cyl(0.02, 0.02, 0.14, darkMat, 0.35, 0.98, side * 0.84, 8);
+      var stalk = cyl(0.02, 0.02, 0.14, darkMat, 0.10, 0.72, side * 0.78, 8);
       stalk.rotation.x = Math.PI / 2;
       body.add(stalk);
       var mirror = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), darkMat);
       mirror.scale.set(1.3, 0.8, 0.8);
-      mirror.position.set(0.35, 0.98, side * 0.92);
+      mirror.position.set(0.10, 0.72, side * 0.88);
       mirror.castShadow = true;
       body.add(mirror);
     });
-    // Carbon rear wing: a thin airfoil blade (extruded section, slight
-    // attack angle) on twin cylinder struts. Top stays at 1.34, above
-    // the glass canopy top at 1.24, so the spoiler reads from low rear
+    // Flat-shaded dark trim: sharp panels (intake, endplates, diffuser)
+    // use flatShading so their edges stay crisp, not smoothed.
+    var flatDark = std(0x14161a, 0.6, 0.2, { flatShading: true });
+    // NOSE: wedge intake + sensor strip. The intake is a beveled plate
+    // (recipe: closed XY profile, ~0.02 bevel) set proud of the nose
+    // face between splitter and headlights; the cyan sensor bar fills
+    // the gap between the two headlight strips.
+    var intake = profileBodySmooth([
+      [2.84, 0.20], [2.32, 0.20], [2.32, 0.36], [2.84, 0.32]
+    ], 1.30, flatDark, 0.02, 0.02);
+    intake.name = 'noseIntake';
+    body.add(intake);
+    var sensorMat = std(0x0a2a2a, 0.3, 0.1, { emissive: 0x00f0ff, emissiveIntensity: 2.5 });
+    var sensor = box(0.04, 0.06, 0.50, sensorMat, HL + 0.01, 0.44, 0);
+    sensor.name = 'noseSensor';
+    body.add(sensor);
+    // Carbon rear wing: BIG and near-black so it reads from the rear
+    // against sky and road. Wide airfoil blade (1.92 across, deeper
+    // 0.84 chord, slight attack angle) on twin thick struts, with
+    // endplates at the tips. Top stays at 1.36, well above the lowered
+    // glass canopy top at 1.07, so the spoiler reads from low rear
     // angles instead of hiding behind the canopy.
-    var wingMat = std(0x111111, 0.35, 0.6);
+    var wingMat = std(0x0d0d0f, 0.35, 0.6);
     var wing = profileBodySmooth([
-      [0.30, -0.02], [0.30, 0.04], [-0.28, 0.05], [-0.30, -0.02]
-    ], 1.60, wingMat, 0.02, 0.02);
-    wing.position.set(-L / 2 + 0.22, 1.27, 0);
+      [0.42, -0.02], [0.42, 0.05], [-0.40, 0.06], [-0.42, -0.02]
+    ], 1.92, wingMat, 0.02, 0.02);
+    wing.position.set(-HL + 0.22, 1.28, 0);
     wing.rotation.z = 0.08;
+    wing.name = 'wingBlade';
     body.add(wing);
-    body.add(cyl(0.05, 0.05, 0.44, wingMat, -L / 2 + 0.28, 1.06, 0.52, 10));
-    body.add(cyl(0.05, 0.05, 0.44, wingMat, -L / 2 + 0.28, 1.06, -0.52, 10));
-    // LED headlights: thin swept emissive strips on the nose, angled
+    [1, -1].forEach(function (side) {
+      body.add(box(0.72, 0.20, 0.03, flatDark, -HL + 0.22, 1.30, side * 0.96));
+    });
+    body.add(cyl(0.06, 0.06, 0.62, wingMat, -HL + 0.28, 1.00, 0.60, 10));
+    body.add(cyl(0.06, 0.06, 0.62, wingMat, -HL + 0.28, 1.00, -0.60, 10));
+    // Racing stripes: twin white stripes over the hood and the rear
+    // deck, laid to follow each surface slope (hood falls toward the
+    // nose, deck falls toward the tail). They stop short of the glass
+    // canopy and of the tail edge so they never clip through.
+    var stripeMat = std(0xf4f6f6, 0.4, 0.1);
+    [0.20, -0.20].forEach(function (z) {
+      var hs = box(1.15, 0.03, 0.24, stripeMat, 1.825, 0.58, z);
+      hs.rotation.z = -0.114;
+      body.add(hs);
+      var ds = box(0.75, 0.03, 0.24, stripeMat, -2.28, 0.67, z);
+      ds.rotation.z = 0.127;
+      body.add(ds);
+    });
+    // DECALS — panel lines: two shut lines on the hood flanking the
+    // stripes (following the hood slope) + one transverse line across
+    // the rear deck. Thin dark boxes laid on the surface like the stripes.
+    [0.55, -0.55].forEach(function (z) {
+      var pl = box(1.05, 0.012, 0.035, darkMat, 1.85, 0.58, z);
+      pl.rotation.z = -0.114;
+      body.add(pl);
+    });
+    body.add(box(0.035, 0.012, 1.30, darkMat, -1.95, 0.72, 0));
+    // DECALS — race number "07": a white roundel on each door with a
+    // torus "0" + boxed "7". One local layout serves both flanks: the
+    // -z group is rotated PI about Y, which reads correctly from that
+    // side (same as a physical two-sided decal).
+    var numWhite = std(0xf4f6f6, 0.4, 0.1);
+    var numDark = std(0x14161a, 0.5, 0.2);
+    [1, -1].forEach(function (side) {
+      var dec = new THREE.Group();
+      dec.position.set(-0.35, 0.50, side * 0.972);
+      if (side < 0) dec.rotation.y = Math.PI;
+      var roundel = new THREE.Mesh(new THREE.CircleGeometry(0.17, 24), numWhite);
+      roundel.position.z = 0.002;
+      dec.add(roundel);
+      var zero = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.014, 8, 20), numDark);
+      zero.position.set(-0.055, 0, 0.006);
+      dec.add(zero);
+      var sevenTop = box(0.09, 0.022, 0.012, numDark, 0.055, 0.05, 0.006);
+      dec.add(sevenTop);
+      var sevenDiag = box(0.022, 0.11, 0.012, numDark, 0.055, 0.0, 0.006);
+      sevenDiag.rotation.z = -0.35;
+      dec.add(sevenDiag);
+      body.add(dec);
+    });
+    // LED headlights: wider + taller emissive strips on the nose, angled
     // back along the flanks. LED tail: one full-width red strip.
-    var hl = ledStrip(0.55, 0.10, headMat);
+    // Hero-local mats run hotter (3.2 / 3.6) so the strips glow hard.
+    var heroHeadMat = std(0xfff6d8, 0.3, 0.1, { emissive: 0xfff2c0, emissiveIntensity: 3.2 });
+    var heroTailMat = std(0xff2a2a, 0.3, 0.1, { emissive: 0xff1a1a, emissiveIntensity: 3.6 });
+    var hl = ledStrip(0.78, 0.14, heroHeadMat);
     hl.rotation.y = Math.PI / 2;
-    hl.position.set(L / 2 - 0.04, 0.50, 0.90);
+    hl.position.set(HL - 0.04, 0.42, 0.90);
     body.add(hl);
-    var hl2 = ledStrip(0.55, 0.10, headMat);
+    var hl2 = ledStrip(0.78, 0.14, heroHeadMat);
     hl2.rotation.y = -Math.PI / 2;
-    hl2.position.set(L / 2 + 0.02, 0.50, -0.90);
+    hl2.position.set(HL + 0.02, 0.42, -0.90);
     body.add(hl2);
-    var tl = ledStrip(W * 0.88, 0.11, tailMat);
+    var tl = ledStrip(W * 0.88, 0.16, heroTailMat);
     tl.rotation.y = -Math.PI / 2;
-    tl.position.set(-L / 2 + 0.04, 0.56, -W * 0.44);
+    tl.position.set(-HL + 0.04, 0.50, -W * 0.44);
     body.add(tl);
-    // twin exhausts
-    body.add(cyl(0.07, 0.07, 0.22, darkMat, -L / 2 - 0.05, 0.28, 0.38, 10).rotateX(Math.PI / 2));
-    body.add(cyl(0.07, 0.07, 0.22, darkMat, -L / 2 - 0.05, 0.28, -0.38, 10).rotateX(Math.PI / 2));
+    // Twin rear ENGINES: cylinder pods on the car's length axis, each
+    // with a nozzle ring (torus) + an inner emissive disc. The discs
+    // are named 'nitroDisc' — stepCar raises their emissiveIntensity
+    // while nitro is active (boost state cue, visual only).
+    var engineMat = std(0x2a2e33, 0.4, 0.7);
+    var nozzleMat = std(0x111318, 0.35, 0.8);
+    [1, -1].forEach(function (side) {
+      var pod = cyl(0.13, 0.13, 0.30, engineMat, -HL - 0.06, 0.32, side * 0.42, 14);
+      pod.rotation.z = Math.PI / 2; // cylinder axis -> car length (X)
+      pod.name = side > 0 ? 'engineL' : 'engineR';
+      body.add(pod);
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.028, 10, 24), nozzleMat);
+      ring.position.set(-HL - 0.21, 0.32, side * 0.42);
+      ring.rotation.y = Math.PI / 2;
+      ring.castShadow = true;
+      body.add(ring);
+      var discMat = new THREE.MeshStandardMaterial({
+        color: 0x1a0d08, roughness: 0.4, metalness: 0.2,
+        emissive: 0xff6a22, emissiveIntensity: 2.2
+      });
+      var disc = new THREE.Mesh(new THREE.CircleGeometry(0.105, 20), discMat);
+      disc.position.set(-HL - 0.215, 0.32, side * 0.42);
+      disc.rotation.y = -Math.PI / 2; // face rearward
+      disc.name = 'nitroDisc';
+      body.add(disc);
+    });
     // front splitter: thin extruded blade under the nose
     body.add(profileBodySmooth([
-      [L / 2 + 0.06, 0.10], [L / 2 - 0.28, 0.10], [L / 2 - 0.28, 0.18], [L / 2 + 0.06, 0.18]
+      [HL + 0.06, 0.10], [HL - 0.28, 0.10], [HL - 0.28, 0.18], [HL + 0.06, 0.18]
     ], W * 0.94, darkMat, 0.02, 0.02));
     // side skirts: rounded rails along the sills (cylinders, not boxes)
-    var sk1 = cyl(0.05, 0.05, 2.4, darkMat, 0, 0.14, W / 2 - 0.02, 10);
+    var sk1 = cyl(0.05, 0.05, 2.6, darkMat, 0, 0.14, W / 2 - 0.02, 10);
     sk1.rotation.z = Math.PI / 2;
     body.add(sk1);
-    var sk2 = cyl(0.05, 0.05, 2.4, darkMat, 0, 0.14, -W / 2 + 0.02, 10);
+    var sk2 = cyl(0.05, 0.05, 2.6, darkMat, 0, 0.14, -W / 2 + 0.02, 10);
     sk2.rotation.z = Math.PI / 2;
     body.add(sk2);
-    var g1 = glowSprite(0xfff2c0, 0.65); if (g1) { g1.position.set(L / 2 + 0.25, 0.52, 0.62); body.add(g1); }
-    var g2 = glowSprite(0xfff2c0, 0.65); if (g2) { g2.position.set(L / 2 + 0.25, 0.52, -0.62); body.add(g2); }
-    var g3 = glowSprite(0xff2a2a, 0.9); if (g3) { g3.position.set(-L / 2 - 0.25, 0.60, 0); body.add(g3); }
+    // UNDERCARRIAGE: flat under-tray just below the hull bottom, four
+    // suspension arms (chassis rail -> wheel hub, angled in the Y-Z
+    // plane), and a rear diffuser with four vertical fins.
+    var tray = box(4.2, 0.05, 1.5, darkMat, 0, 0.07, 0);
+    tray.name = 'underTray';
+    body.add(tray);
+    [[1.40, 1], [1.40, -1], [-1.40, 1], [-1.40, -1]].forEach(function (a) {
+      var arm = box(0.10, 0.05, 0.55, darkMat, a[0], 0.32, a[1] * 0.675);
+      arm.rotation.x = -a[1] * 0.42;
+      arm.name = 'suspensionArm';
+      body.add(arm);
+    });
+    [-0.30, -0.12, 0.12, 0.30].forEach(function (z) {
+      var fin = box(0.30, 0.10, 0.025, flatDark, -HL + 0.18, 0.12, z);
+      fin.name = 'diffuserFin';
+      body.add(fin);
+    });
+    // Front glow: small + dimmed (was 0.85 @ full opacity — a white
+    // blob that swallowed the 0.14-tall headlight strips). 0.42 keeps
+    // the halo tight to the strip so the strip shape still reads.
+    var g1 = glowSprite(0xfff2c0, 0.42); if (g1) { g1.material.opacity = 0.7; g1.position.set(HL + 0.25, 0.44, 0.62); body.add(g1); }
+    var g2 = glowSprite(0xfff2c0, 0.42); if (g2) { g2.material.opacity = 0.7; g2.position.set(HL + 0.25, 0.44, -0.62); body.add(g2); }
+    var g3 = glowSprite(0xff2a2a, 1.1); if (g3) { g3.position.set(-HL - 0.25, 0.54, 0); body.add(g3); }
   }
 
   function buildSedan(body, spec, paint, taxi) {
@@ -357,7 +512,7 @@
     type = SPECS[type] ? type : 'sedan';
     var spec = SPECS[type];
     var color = spec.colors[(Math.random() * spec.colors.length) | 0];
-    if (type === 'sport') color = 0x1fd6c1; // hero Apex GT: bright teal, always
+    if (type === 'sport') color = 0x00f0d0; // hero Apex GT: bright saturated cyan, always
     var paint = std(color, 0.42, 0.28);
 
     var group = new THREE.Group();
@@ -386,7 +541,7 @@
       var defs = [[fx, zw, true], [fx, -zw, true], [rx, zw, false], [rx, -zw, false]];
       if (type === 'bike') defs = [[0.75, 0, true], [-0.75, 0, false]];
       defs.forEach(function (d) {
-        var w = makeWheel(spec.wheelR, spec.wheelW, d[2]);
+        var w = makeWheel(spec.wheelR, spec.wheelW, d[2], type === 'sport');
         w.pivot.position.set(d[1], spec.wheelR, d[0]);
         group.add(w.pivot);
         wheels.push(w);
@@ -529,6 +684,21 @@
           car.group.localToWorld(_tmp2);
           VR.Effects.spawnFlame(_tmp2.x, _tmp2.y, _tmp2.z, 2);
         }
+      }
+    }
+
+    // Hero boost state cue (visual only, no physics): the twin engine
+    // discs ('nitroDisc') glow harder while nitro is active. The discs
+    // are looked up once and cached on the car.
+    if (car.type === 'sport') {
+      if (!car._nitroDiscs) {
+        car._nitroDiscs = [];
+        car.body.traverse(function (o) { if (o.name === 'nitroDisc') car._nitroDiscs.push(o); });
+      }
+      var discTarget = car.nitroActive ? 6.0 : 2.2;
+      for (var di = 0; di < car._nitroDiscs.length; di++) {
+        var dm = car._nitroDiscs[di].material;
+        dm.emissiveIntensity += (discTarget - dm.emissiveIntensity) * Math.min(1, dt * 8);
       }
     }
 

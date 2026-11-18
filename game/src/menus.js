@@ -273,6 +273,25 @@
     g.fillText('DOCKYARD', px(195), pz(0));
     g.fillText('N', px(0) - size * 0.02, pz(-240) + 16);
     g.shadowBlur = 0;
+    // Vandara Avenue label, rotated along the diagonal (bottom-left
+    // Golden Pier -> top-right Highrise Plaza); Plaza Ring label.
+    g.save();
+    g.translate(px(-60), pz(30));
+    g.rotate(-Math.PI / 4);
+    g.font = 'bold 12px system-ui, sans-serif';
+    g.fillStyle = 'rgba(255,210,63,0.9)';
+    g.shadowColor = 'rgba(0,0,0,0.9)';
+    g.shadowBlur = 3;
+    g.fillText('VANDARA AVENUE', 0, -12);
+    g.restore();
+    g.save();
+    g.font = 'bold 10px system-ui, sans-serif';
+    g.fillStyle = 'rgba(255,233,201,0.85)';
+    g.shadowColor = 'rgba(0,0,0,0.9)';
+    g.shadowBlur = 3;
+    g.fillText('PLAZA RING', px(-22), pz(-17)); // ring centre is (-22,-57) in the plan
+    g.restore();
+    g.shadowBlur = 0;
     // Mission target (yellow diamond) + waypoint line from the player.
     var pos = null;
     if (S.inCar && S.car && S.car.group) {

@@ -237,6 +237,32 @@
     while (units.length < want) if (!spawnUnit()) break;
   }
 
+  // ENV-GLOW: one rotator step shared by patrol cars and roadblock
+  // cars. Alternates red/blue every ~0.25s; the lit side's halo
+  // breathes outward (scale pulse) and its PointLight flares, so the
+  // bar reads as a spinning beacon rather than a blinking dot.
+  function updateRotator(u, dt) {
+    u.phase += dt * 12;
+    var s = Math.sin(u.phase);
+    var redOn = s > 0;
+    u.redMat.emissiveIntensity = redOn ? 3.2 : 0.4;
+    u.blueMat.emissiveIntensity = redOn ? 0.4 : 3.2;
+    if (u.light) {
+      u.light.color.setHex(redOn ? 0xff2222 : 0x3355ff);
+      u.light.intensity = 2.2 + Math.max(0, redOn ? s : -s) * 1.8;
+    }
+    if (u.redGlow) {
+      u.redGlow.material.opacity = redOn ? 0.95 : 0.15;
+      var rs = 3.4 * (1 + 0.22 * Math.max(0, s));
+      u.redGlow.scale.set(rs, rs, 1);
+    }
+    if (u.blueGlow) {
+      u.blueGlow.material.opacity = redOn ? 0.15 : 0.95;
+      var bs = 3.4 * (1 + 0.22 * Math.max(0, -s));
+      u.blueGlow.scale.set(bs, bs, 1);
+    }
+  }
+
   // ---------- pursuit driving ----------
   function planRoute(unit) {
     if (!VR.Roads || !VR.Roads.route) return;
@@ -850,14 +876,7 @@
     for (var i = 0; i < units.length; i++) {
       var u = units[i];
       if (!u.car || u.car.dead) continue;
-      // Rotators: alternate red / blue every ~0.25s.
-      u.phase += dt * 12;
-      var redOn = Math.sin(u.phase) > 0;
-      u.redMat.emissiveIntensity = redOn ? 3.2 : 0.4;
-      u.blueMat.emissiveIntensity = redOn ? 0.4 : 3.2;
-      if (u.light) u.light.color.setHex(redOn ? 0xff2222 : 0x3355ff);
-      if (u.redGlow) u.redGlow.material.opacity = redOn ? 0.95 : 0.15;
-      if (u.blueGlow) u.blueGlow.material.opacity = redOn ? 0.15 : 0.95;
+      updateRotator(u, dt);
       if (state === 'SEARCHING') searchUnit(u, dt);
       else driveUnit(u, dt);
     }
@@ -868,14 +887,7 @@
       for (var j = 0; j < rb.cars.length; j++) {
         var rc = rb.cars[j];
         if (!rc.group || !rc.group.userData || !rc.group.userData.policeUnit) continue;
-        var ru = rc.group.userData.policeUnit;
-        ru.phase += dt * 12;
-        var rOn = Math.sin(ru.phase) > 0;
-        ru.redMat.emissiveIntensity = rOn ? 3.2 : 0.4;
-        ru.blueMat.emissiveIntensity = rOn ? 0.4 : 3.2;
-        if (ru.light) ru.light.color.setHex(rOn ? 0xff2222 : 0x3355ff);
-        if (ru.redGlow) ru.redGlow.material.opacity = rOn ? 0.95 : 0.15;
-        if (ru.blueGlow) ru.blueGlow.material.opacity = rOn ? 0.15 : 0.95;
+        updateRotator(rc.group.userData.policeUnit, dt);
       }
     }
 

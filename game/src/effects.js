@@ -29,7 +29,8 @@
   }
 
   function init() {
-    if (initialized || !VR.World || !VR.World.scene) return false;
+    if (initialized) return true;
+    if (!VR.World || !VR.World.scene) return false;
     smokeTex = radialTexture('rgba(255,255,255,0.85)', 'rgba(255,255,255,0)');
     glowTex = radialTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)');
     var scene = VR.World.scene;
@@ -66,6 +67,29 @@
     }
     initialized = true;
     return true;
+  }
+
+  // ENV-GLOW helper: one additive radial-glow sprite, reusing the single
+  // shared 64px white radial texture (tinted by material.color) — zero
+  // new canvases per glow. Used by main.js for car headlights; police.js
+  // and buildings.js keep using VR.World.makeGlowSprite (same look).
+  // Returns the sprite (not added to the scene — the caller parents it).
+  // NOTE: do NOT guard on init()'s return value — init() returns false
+  // once already initialized, so `if (!init()) return null` would make
+  // every makeGlow call after the first frame return null. (Same latent
+  // pattern exists in spawnSmoke/spawnFlame below — pre-existing, left
+  // alone: fixing it would change combat visuals, out of ENV-GLOW scope.)
+  function makeGlow(color, size, opacity) {
+    if (!initialized && !init()) return null;
+    if (!glowTex) return null;
+    var m = new THREE.SpriteMaterial({
+      map: glowTex, color: color, transparent: true,
+      opacity: (opacity === undefined ? 1 : opacity),
+      depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    var s = new THREE.Sprite(m);
+    s.scale.set(size, size, 1);
+    return s;
   }
 
   function nextFree(pool) {
@@ -193,6 +217,7 @@
     tracer: tracer,
     explosion: explosion,
     shake: shake,
+    makeGlow: makeGlow,
     update: update,
     shakeX: 0,
     shakeY: 0,

@@ -1,4 +1,4 @@
-// SOLARA BAY — shared data. Written by the coordinator. Workers import this, never redefine it.
+// PUERTO MIRA — shared data. Written by the coordinator. Workers import this, never redefine it.
 export const CITY = { block: 60, street: 14, half: 240, beachZ: 200, oceanZ: 215 };
 
 export const DISTRICTS = [
@@ -35,8 +35,9 @@ export const POLICE_UNITS = ['ORCA-12', 'TIDE-07', 'REEF-22', 'SURGE-31', 'MARLI
 export const HELI_NAME = 'HAWK-2';
 
 export const RADIO = [
-  { station: 'TIDE 101', genre: 'Golden Hour', tracks: ['Sunset Run — Coastline', 'Palm Static — Coral Ghosts', 'Neon Drive — Pink Horizon'] },
-  { station: 'BAY 88.3', genre: 'Neon Tide', tracks: ['Tide Line — Marina Lights', 'Golden Hour — The Vela', 'Night Swim — Solara'] },
+  { station: 'ONDA 96.5 FM', genre: 'Onda Sunset', tracks: ['Golden Static — Marina Verde', 'Palm Light — Isla Verde', 'Sunset Run — Costa Azul'] },
+  { station: 'BRISA 88.3', genre: 'Brisa Chill', tracks: ['Slow Tide — Café Brisa', 'Salt Air — Ana Mar', 'Driftwood — Los Faros'] },
+  { station: 'CORAL 101.7', genre: 'Coral Nights', tracks: ['Neon Reef — Coral Ghosts', 'Midnight Harbor — Vela Negra', 'Afterglow — The Miramars'] },
 ];
 
 export const CHARACTERS = {
@@ -75,20 +76,10 @@ export const MISSIONS = [
       { objective: 'Lose the cops before the window closes — 2:30', target: null, timer: 150 },
       { objective: 'Bring the money home to Palm Court', target: [90, 60] },
     ], reward: 2500, respect: 400 },
-  { id: 5, chapter: 6, title: 'Double Cross', briefing: 'Lena set a meet at the marina. It is a trap. Survive it, then chase the traitor down.',
+  { id: 5, chapter: 6, title: 'Puerto Mira Nights', briefing: 'Lena set a meet at the marina — but Voss himself is coming to end it. Survive the trap, face him at Harbor Heights, then run for the pier.',
     stages: [
       { objective: 'Meet Lena at the marina', target: [180, 150] },
       { objective: 'Survive the ambush — take out 4', target: [180, 150] },
-      { objective: 'Chase the traitor’s car', target: null },
-    ], reward: 3000, respect: 450 },
-  { id: 6, chapter: 7, title: 'High Tide', briefing: 'The Corsair prototype sits in the Voss compound. Take it. Bring it home in one piece.',
-    stages: [
-      { objective: 'Reach the Voss compound in Old Town', target: [-180, -90] },
-      { objective: 'Steal the Corsair prototype', target: [-180, -90] },
-      { objective: 'Bring it to Mira’s garage', target: [90, 60] },
-    ], reward: 4500, respect: 600 },
-  { id: 7, chapter: 8, title: 'Solara Nights', briefing: 'It ends tonight. Confront Voss at Harbor Heights, survive the siege, escape to the pier.',
-    stages: [
       { objective: 'Confront Voss at Harbor Heights', target: [120, -180] },
       { objective: 'Survive the siege', target: [120, -180] },
       { objective: 'Escape to the pier at Marina Verde', target: [-180, 210] },

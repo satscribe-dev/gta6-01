@@ -1,4 +1,4 @@
-// SOLARA BAY — missions (W4). Story missions, 8 chapters from config MISSIONS.
+// PUERTO MIRA — missions (W5). Story missions, 6 chapters from config MISSIONS.
 // Markers, enemy crews, the traitor chase, timers, fail/retry, rewards.
 // Player shooting at mission enemies is handled by player.js: this module
 // exposes the live enemy figures as game.enemies ({ group, health, alive })
@@ -22,7 +22,7 @@ const CHASE_LOOP = [[150, 120], [210, 120], [210, 180], [150, 180]];
 const ENEMY_OFFSETS = [[12, 4], [-10, 8], [6, -12], [-12, -6], [16, -4], [-4, 14]];
 
 // Who briefs each mission (chapter order).
-const BRIEFING_SPEAKER = ['mira', 'lena', 'theo', 'lena', 'mira', 'lena', 'mira', 'voss'];
+const BRIEFING_SPEAKER = ['mira', 'lena', 'theo', 'lena', 'mira', 'lena'];
 // Lines spoken when a later stage begins ("mission:stage" -> speaker + line).
 const STAGE_LINES = {
   '0:1': { who: 'mira', text: "That's my Zephyr. Bring her to the garage in Palm Court — in one piece." },
@@ -33,21 +33,17 @@ const STAGE_LINES = {
   '4:1': { who: 'mira', text: 'Cash is yours. But the heli is up — lose them before the window closes.' },
   '4:2': { who: 'mira', text: "Clean. Bring the money home to Palm Court." },
   '5:1': { who: 'lena', text: "It's a trap — Voss crew, everywhere! Survive it, Kai!" },
-  '5:2': { who: 'theo', text: "The traitor's running in a Vela. Chase him down — don't let him reach the bridge." },
-  '6:1': { who: 'mira', text: "There's the prototype. Take the Corsair — it's ours now." },
-  '6:2': { who: 'mira', text: 'Beautiful. Bring it home to my garage.' },
-  '7:1': { who: 'voss', text: 'So the wheelman finally shows. My crew will bury you, Mercer.' },
-  '7:2': { who: 'lena', text: 'The siege is broken — now run. The pier at Marina Verde. Go!' },
+  '5:2': { who: 'voss', text: 'So the wheelman finally shows. My crew will bury you, Mercer.' },
+  '5:3': { who: 'theo', text: 'The whole compound is coming at you — hold the line, Kai!' },
+  '5:4': { who: 'lena', text: 'The siege is broken — now run. The pier at Marina Verde. Go!' },
 };
 const COMPLETE_LINES = [
-  "She's perfect. Welcome back to the bay, Kai.",
+  "She's perfect. Welcome to Puerto Mira, Kai.",
   "Package delivered, no heat. You're a professional after all.",
   "Heat's gone. You're a ghost, Kai. A fast ghost.",
   'The club is quiet. Voss will feel that one.',
   "Money's home. That heli never stood a chance.",
-  "The traitor's done. Voss is running out of friends.",
-  'The prototype is ours. Voss is going to scream.',
-  'It is over, Kai. Solara Bay is yours.',
+  'It is over, Kai. Puerto Mira is yours.',
 ];
 
 let game = null;
@@ -83,7 +79,7 @@ function makeMarker(color) {
   const group = new THREE.Group();
   const pillar = new THREE.Mesh(
     new THREE.CylinderGeometry(1.3, 1.3, 26, 12, 1, true),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
   );
   pillar.position.y = 13;
   const ring = new THREE.Mesh(
@@ -249,7 +245,12 @@ function setupStage() {
 
 // --- public mission flow ---
 export function startMission(i) {
-  if (i < 0 || i >= MISSIONS.length) return;
+  // Clamp, never reject: an old save (8-mission era) can hold current 6 or 7,
+  // and continueGame passes it straight in. Clamping to the finale keeps the
+  // player near the end instead of crashing or silently doing nothing; a
+  // finished old save (7, state 'done') replays the finale, which is safe.
+  if (typeof i !== 'number' || !Number.isFinite(i)) i = 0;
+  i = Math.max(0, Math.min(Math.floor(i), MISSIONS.length - 1));
   if (game.missions.state === 'active' && game.missions.current === i) return;
   clearStageActors();
   game.missions.current = i;
@@ -279,7 +280,7 @@ export function failMission(reason) {
   const m = MISSIONS[game.missions.current];
   game.missions.stage = 0;
   game.missions.state = 'idle';
-  game.missions.objective = `${m.title} — failed (${reason}). Press E at the gold marker to retry.`;
+  game.missions.objective = `${m.title} — failed (${reason}). Press E ${game.missions.target ? 'at the gold marker ' : ''}to retry.`;
   game.missions.target = m.stages[0].target ? [m.stages[0].target[0], m.stages[0].target[1]] : null;
   if (game.missions.target) showMarker(game.missions.target[0], game.missions.target[1]);
   say('lena', `That went sideways, Kai. ${m.title} is still open — get back to the marker and press E to run it again.`);
@@ -295,23 +296,32 @@ export function completeMission() {
   // game.addMoney emits the 'money' event itself; no second emit here.
   game.addMoney(m.reward, `Mission complete: ${m.title}`);
   game.addRespect(m.respect);
-  if (game.save && typeof game.save.saveGame === 'function') game.save.saveGame();
   say(BRIEFING_SPEAKER[game.missions.current], COMPLETE_LINES[game.missions.current]);
   game.events.emit('mission', { result: 'complete', mission: game.missions.current, reward: m.reward });
   if (game.missions.current >= MISSIONS.length - 1) {
     game.missions.state = 'done';
     game.missions.stage = 0;
-    game.missions.objective = 'Solara Nights complete — the bay is yours, Kai.';
+    game.missions.objective = `${m.title} complete — Puerto Mira is yours, Kai.`;
     game.missions.target = null;
   } else {
     game.missions.current += 1;
     game.missions.stage = 0;
     game.missions.state = 'idle';
     const next = MISSIONS[game.missions.current];
-    game.missions.objective = `Next: ${next.title} — press E at the gold marker to start.`;
     game.missions.target = next.stages[0].target ? [next.stages[0].target[0], next.stages[0].target[1]] : null;
-    if (game.missions.target) showMarker(game.missions.target[0], game.missions.target[1]);
+    if (game.missions.target) {
+      game.missions.objective = `Next: ${next.title} — press E at the gold marker to start.`;
+      showMarker(game.missions.target[0], game.missions.target[1]);
+    } else {
+      // No marker to walk to (Heat Wave: the heat comes to you) — E anywhere
+      // starts it; see the idle branch in update().
+      game.missions.objective = `Next: ${next.title} — press E to start.`;
+    }
   }
+  // Save LAST: the save must record the NEXT mission (progress), not the one
+  // just completed — saving before the increment above made Continue replay
+  // the finished mission (v2 bug).
+  if (game.save && typeof game.save.saveGame === 'function') game.save.saveGame();
   emitObjective();
 }
 
@@ -442,10 +452,11 @@ function update(dt) {
   // Idle: a mission ONLY starts when the player presses E within 12 m of
   // the gold marker. Walking/driving through the marker never starts it —
   // a fresh player needs a moment to get ready before a timed run
-  // (e.g. The Drop, 3:00 on the clock).
+  // (e.g. The Drop, 3:00 on the clock). Missions whose first stage has no
+  // target (Heat Wave: the heat comes to you) start on E anywhere.
   if (game.missions.state === 'idle') {
     const t = game.missions.target;
-    if (t && ePressed && distTo(t[0], t[1]) <= 12) startMission(game.missions.current);
+    if (ePressed && (!t || distTo(t[0], t[1]) <= 12)) startMission(game.missions.current);
   }
 
   if (game.missions.state !== 'active') return;

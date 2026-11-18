@@ -1,4 +1,4 @@
-// SOLARA BAY — synthesized audio. W5.
+// PUERTO MIRA — synthesized audio. W5.
 // WebAudio ONLY, everything synthesized (no audio files): engine hum, two-tone
 // siren, gunshots, synthwave radio (pad + bass + arp per station), UI blips,
 // mission stings. The AudioContext is created on the first user gesture only
@@ -40,11 +40,14 @@ let qWasDown = false;
 let qCooldown = 0;
 
 // Synthwave chord progressions per station (MIDI note numbers, triads).
+// Order MUST match config RADIO: [ONDA 96.5 FM, BRISA 88.3, CORAL 101.7].
 const PROGRESSIONS = [
-  // TIDE 101 — Golden Hour: Am F C G
+  // ONDA 96.5 FM — Onda Sunset: Am F C G
   [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],
-  // BAY 88.3 — Neon Tide: Dm Bb F Gm
+  // BRISA 88.3 — Brisa Chill: Dm Bb F Gm
   [[50, 53, 57], [46, 50, 53], [48, 52, 55], [43, 47, 50]],
+  // CORAL 101.7 — Coral Nights: Em C G D
+  [[52, 55, 59], [48, 52, 55], [55, 59, 62], [50, 54, 57]],
 ];
 const STEP_DUR = 0.21; // 8th note at ~143 BPM
 const STEPS_PER_BAR = 8;

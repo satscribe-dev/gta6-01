@@ -1,6 +1,6 @@
-// SOLARA BAY — HUD, title screen, pause menu, map overlay. W5.
+// PUERTO MIRA — HUD, title screen, pause menu, map overlay. W5.
 // Fills every HUD element in index.html and keeps it ALIVE: ticking cash,
-// pulsing wanted stars, scrolling SBPD scanner chatter, moving minimap blips,
+// pulsing wanted stars, scrolling PMPD scanner chatter, moving minimap blips,
 // typewriter dialogue, centre combo popups. update() only mutates textContent /
 // style / classes — it never rebuilds DOM per frame. All reads of other
 // systems are defensive: police/missions/world may not exist yet when a shot
@@ -22,6 +22,24 @@ const fmtTimer = (sec) => {
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 };
 const hexCss = (hex) => '#' + hex.toString(16).padStart(6, '0');
+
+// ---------- weapon slot icons (v3) ----------
+// Drawn silhouettes, not text: each slot shows the weapon's shape in white
+// on the dark tile (top-1 style). Fist / pistol / SMG / shotgun side views,
+// plus a padlock for the locked 5th slot. currentColor so the tile controls
+// the tint; viewBoxes keep the natural proportions of each weapon.
+const WEAPON_ICONS = {
+  0: '<svg viewBox="0 0 40 28" aria-hidden="true"><g fill="currentColor"><rect x="6" y="12" width="28" height="14" rx="4"/><circle cx="11" cy="11" r="4.5"/><circle cx="18" cy="9.5" r="4.5"/><circle cx="25" cy="9.5" r="4.5"/><circle cx="31" cy="11" r="4"/></g></svg>',
+  1: '<svg viewBox="0 0 40 28" aria-hidden="true"><g fill="currentColor"><rect x="3" y="6" width="31" height="7" rx="1.5"/><rect x="33" y="8" width="4" height="3.5" rx="1"/><path d="M11 13 L19 13 L17 26 L9 26 Z"/><rect x="22" y="13" width="3" height="5"/></g></svg>',
+  2: '<svg viewBox="0 0 48 28" aria-hidden="true"><g fill="currentColor"><rect x="7" y="8" width="30" height="7" rx="2"/><rect x="37" y="9.5" width="9" height="4" rx="1"/><path d="M14 15 L22 15 L20 27 L12 27 Z"/><rect x="27" y="15" width="5" height="5"/><rect x="2" y="9" width="5" height="6" rx="1"/></g></svg>',
+  3: '<svg viewBox="0 0 48 28" aria-hidden="true"><g fill="currentColor"><rect x="12" y="8" width="32" height="4.5" rx="1"/><rect x="12" y="13.5" width="24" height="4" rx="1"/><path d="M3 8 L13 8 L13 17 L8 17 L6 25 L2 25 L2 12 Z"/><rect x="18" y="17.5" width="5" height="5"/></g></svg>',
+};
+const LOCK_ICON = '<svg viewBox="0 0 24 28" aria-hidden="true"><rect x="4" y="12" width="16" height="13" rx="2" fill="currentColor"/><path d="M8 13 V9 a4 4 0 0 1 8 0 v4" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>';
+
+// ---------- dialogue portrait (v3) ----------
+// Drawn face silhouette (head + shoulders), not initials: the character's
+// colour stays as the tile background, the white silhouette is the face.
+const PORTRAIT_SVG = '<svg viewBox="0 0 56 56" aria-hidden="true"><g fill="#ffffff"><circle cx="28" cy="21" r="12"/><path d="M9 56 Q9 37 28 37 Q47 37 47 56 Z"/></g></svg>';
 
 let gameRef = null;
 
@@ -54,7 +72,7 @@ function districtAtFallback(x, z) {
     if (x >= d.x0 && x < d.x1 && z >= d.z0 && z < d.z1) return d.name;
   }
   if (z > CITY.beachZ) return 'Marina Verde';
-  return 'Solara Bay';
+  return 'Puerto Mira';
 }
 
 function districtName(x, z) {
@@ -240,12 +258,16 @@ function scannerRow(text, kind) {
 function startDialogue(who, role, text) {
   const card = el.dialogue;
   if (!card || !text) return;
-  const ch = who && CHARACTERS[who] ? CHARACTERS[who] : null;
+  // who may be a key ('mira') or a full name ('Mira Solano': missions.js
+  // and activities.js emit c.name). Resolve both so the portrait colour
+  // matches the speaker; unknown speakers keep the orange fallback.
+  const ch = (who && CHARACTERS[who])
+    || Object.values(CHARACTERS).find((c) => c.name === who)
+    || null;
   const name = ch ? ch.name : (who || '???');
   const roleText = role || (ch ? ch.role : '');
   const color = ch ? hexCss(ch.color) : '#ff7a2e';
-  const initials = name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-  el.dlgPortrait.textContent = initials;
+  el.dlgPortrait.innerHTML = PORTRAIT_SVG;
   el.dlgPortrait.style.background = color;
   el.dlgName.textContent = name;
   el.dlgRole.textContent = roleText;
@@ -296,6 +318,15 @@ function drawMap(canvasEl, size) {
   const px = (v) => (v + CITY.half) * scale;
   const big = size >= 400;
   ctx2d.clearRect(0, 0, size, size);
+  // v3: the minimap is a full CIRCLE — clip every layer (base, beach,
+  // streets, route, blips, player arrow) to the disc so no square corner
+  // can ever show. The big map (M) stays square: no clip there.
+  ctx2d.save();
+  if (!big) {
+    ctx2d.beginPath();
+    ctx2d.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx2d.clip();
+  }
   // City base.
   ctx2d.fillStyle = '#232a3d';
   ctx2d.fillRect(0, 0, size, size);
@@ -450,6 +481,7 @@ function drawMap(canvasEl, size) {
     ctx2d.textAlign = 'left';
     ctx2d.fillText('N', 10, 22);
   }
+  ctx2d.restore(); // undo the minimap circle clip (no-op for the big map)
 }
 
 // ---------- mission card ----------
@@ -494,7 +526,7 @@ function refreshVisibility() {
   if (el.endOverlay) el.endOverlay.classList.toggle('hidden', mode !== 'busted' && mode !== 'wasted');
   if (mode === 'busted' && el.endTitle) {
     el.endTitle.textContent = 'BUSTED';
-    el.endText.textContent = 'The SBPD took you in. $200 fine — wake up at the hospital and try again.';
+    el.endText.textContent = 'The PMPD took you in. $200 fine — wake up at the hospital and try again.';
   }
   if (mode === 'wasted' && el.endTitle) {
     el.endTitle.textContent = 'WASTED';
@@ -526,10 +558,10 @@ function buildTitle() {
   inner.className = 'title-inner';
   const logo = document.createElement('div');
   logo.className = 'title-logo';
-  logo.innerHTML = 'SOLARA<span>BAY</span>';
+  logo.innerHTML = 'PUERTO<span>MIRA</span>';
   const tag = document.createElement('div');
   tag.className = 'title-tag';
-  tag.textContent = 'Steal the sunset. Outrun the SBPD. Take back the bay.';
+  tag.textContent = 'Steal the sunset. Outrun the PMPD. Take back the bay.';
   const saveLine = document.createElement('div');
   saveLine.className = 'title-save';
   saveLine.id = 'title-save-line';
@@ -706,13 +738,13 @@ function buildMapOverlay() {
   o.className = 'hidden';
   const title = document.createElement('div');
   title.className = 'map-title';
-  title.textContent = 'SOLARA BAY — MAP  ·  M TO CLOSE';
+  title.textContent = 'PUERTO MIRA — MAP  ·  M TO CLOSE';
   const canvasEl = document.createElement('canvas');
   canvasEl.width = 480;
   canvasEl.height = 480;
   const legend = document.createElement('div');
   legend.className = 'map-legend';
-  legend.textContent = 'ORANGE — YOU · RED — SBPD · GOLD — MISSION · GREY — TRAFFIC';
+  legend.textContent = 'ORANGE — YOU · RED — PMPD · GOLD — MISSION · GREY — TRAFFIC';
   o.appendChild(title);
   o.appendChild(canvasEl);
   o.appendChild(legend);
@@ -763,12 +795,18 @@ function updateWanted() {
 
 function updateWeapons() {
   const w = gameRef.player.weapon ?? 1;
-  if (w === S.prevWeapon) {
-    // Ammo can still change without a weapon switch — refresh cheaply.
+  // Active weapon tile (bottom-right, by the speedo): refresh on switch only.
+  if (w !== S.prevWeapon) {
+    if (el.awIcon) el.awIcon.innerHTML = WEAPON_ICONS[w] || '';
+    if (el.awName) el.awName.textContent = WEAPONS[w] ? WEAPONS[w].name.toUpperCase() : '';
   }
   const slots = el.weapons ? el.weapons.children : [];
   for (let i = 0; i < slots.length; i += 1) {
     const wp = WEAPONS[i];
+    if (!wp) { // the locked 5th tile has no weapon: never active, no ammo
+      slots[i].classList.toggle('active', false);
+      continue;
+    }
     const ammoEl = slots[i].querySelector('.ws-ammo');
     let ammoText = '—';
     if (wp.id === 0) ammoText = '∞';
@@ -801,7 +839,9 @@ function updateSpeedo() {
     const nitro = car.type === 'zephyr';
     if (el.spNitroRow) el.spNitroRow.classList.toggle('hidden', !nitro);
     if (nitro) {
-      const n = clamp(car.nitro ?? 100, 0, 100);
+      // W6 fix: the gauge is fuel (0–100), not the nitro boolean — car.nitro
+      // is true/false, which clamped to a permanent ~1% bar.
+      const n = clamp(car.nitroFuel ?? 100, 0, 100);
       el.spNitroFill.style.width = n + '%';
     }
   }
@@ -882,6 +922,26 @@ function init(game) {
   el.title = $('title-screen');
   el.pause = $('pause-menu');
 
+  // v3 circular minimap: the canvas + "N" compass move into a round wrapper
+  // (.mm-circle) so the compass rides the ring's top edge, GTA-style. The
+  // header pill above the circle keeps PUERTO MIRA + the district name.
+  // Guarded: if either node is missing the compass simply stays in the
+  // header — no crash, no other HUD logic touched.
+  const mmCompass = document.querySelector('#minimap-header .mm-compass');
+  if (el.minimap && mmCompass && el.minimap.parentNode) {
+    const circle = document.createElement('div');
+    circle.className = 'mm-circle';
+    el.minimap.parentNode.insertBefore(circle, el.minimap);
+    circle.appendChild(el.minimap);
+    circle.appendChild(mmCompass);
+  }
+
+  // City badge (v3): the header pill's text lives in index.html (static, not
+  // a file this worker owns), so the rename is applied here at boot — the
+  // pill reads PUERTO MIRA from the first frame on.
+  const mmTitle = document.querySelector('#minimap-header .mm-title');
+  if (mmTitle) mmTitle.textContent = 'PUERTO MIRA';
+
   // Mission card skeleton.
   if (el.mission) {
     el.mission.innerHTML = '';
@@ -916,7 +976,10 @@ function init(game) {
     }
   }
 
-  // Weapon slots 1-4 from config WEAPONS.
+  // Weapon slots 1-4 from config WEAPONS — icon tiles, not text rows:
+  // [key badge] + drawn weapon silhouette + ammo count under the icon.
+  // The weapon NAME lives under the active tile only (CSS shows it).
+  // A 5th locked tile (padlock, dark) teases the next weapon.
   if (el.weapons) {
     el.weapons.innerHTML = '';
     WEAPONS.forEach((wp, i) => {
@@ -925,17 +988,32 @@ function init(game) {
       const key = document.createElement('span');
       key.className = 'ws-key';
       key.textContent = String(i + 1);
-      const name = document.createElement('span');
-      name.className = 'ws-name';
-      name.textContent = wp.name.toUpperCase();
+      const icon = document.createElement('span');
+      icon.className = 'ws-icon';
+      icon.innerHTML = WEAPON_ICONS[wp.id] || '';
       const ammo = document.createElement('span');
       ammo.className = 'ws-ammo';
       ammo.textContent = wp.id === 0 ? '∞' : String(wp.ammo);
+      const name = document.createElement('span');
+      name.className = 'ws-name';
+      name.textContent = wp.name.toUpperCase();
       slot.appendChild(key);
-      slot.appendChild(name);
+      slot.appendChild(icon);
       slot.appendChild(ammo);
+      slot.appendChild(name);
       el.weapons.appendChild(slot);
     });
+    const lock = document.createElement('div');
+    lock.className = 'weapon-slot locked';
+    const lockIcon = document.createElement('span');
+    lockIcon.className = 'ws-icon';
+    lockIcon.innerHTML = LOCK_ICON;
+    const lockLabel = document.createElement('span');
+    lockLabel.className = 'ws-ammo lock-label';
+    lockLabel.textContent = 'LOCKED';
+    lock.appendChild(lockIcon);
+    lock.appendChild(lockLabel);
+    el.weapons.appendChild(lock);
   }
 
   // Respect bar skeleton.
@@ -959,7 +1037,7 @@ function init(game) {
     el.dialogue.classList.add('hidden');
     el.dlgPortrait = document.createElement('div');
     el.dlgPortrait.className = 'dlg-portrait';
-    el.dlgPortrait.textContent = 'K';
+    el.dlgPortrait.innerHTML = PORTRAIT_SVG;
     const body = document.createElement('div');
     body.className = 'dlg-body';
     const head = document.createElement('div');
@@ -976,6 +1054,21 @@ function init(game) {
     body.appendChild(el.dlgText);
     el.dialogue.appendChild(el.dlgPortrait);
     el.dialogue.appendChild(body);
+  }
+
+  // Active weapon tile (v3): the CURRENT weapon's silhouette next to the
+  // speedometer, bottom-right — same WEAPON_ICONS as the slot column, no
+  // redraw. Seeded on the first updateWeapons() pass (prevWeapon starts -1).
+  if (el.speedo && el.speedo.parentNode) {
+    el.activeWeapon = document.createElement('div');
+    el.activeWeapon.id = 'active-weapon';
+    el.awIcon = document.createElement('span');
+    el.awIcon.className = 'aw-icon';
+    el.awName = document.createElement('span');
+    el.awName.className = 'aw-name';
+    el.activeWeapon.appendChild(el.awIcon);
+    el.activeWeapon.appendChild(el.awName);
+    el.speedo.parentNode.insertBefore(el.activeWeapon, el.speedo);
   }
 
   // Speedo skeleton (driving) + health/armour (on foot).
@@ -1061,9 +1154,15 @@ function init(game) {
     const hint = document.createElement('span');
     hint.className = 'rb-hint';
     hint.textContent = 'Q — CHANGE STATION';
+    // Animated equaliser bars (v3): the radio bar visibly plays.
+    const eq = document.createElement('span');
+    eq.className = 'rb-eq';
+    eq.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 4; i += 1) eq.appendChild(document.createElement('i'));
     el.radio.appendChild(el.radioStation);
     el.radio.appendChild(el.radioTrack);
     el.radio.appendChild(hint);
+    el.radio.appendChild(eq);
   }
 
   // Controls hint — short on purpose: the dialogue card now sits bottom-left,
@@ -1078,7 +1177,7 @@ function init(game) {
   buildMapOverlay();
 
   // Seed the scanner with a standby line so the feed is never empty.
-  scannerRow('SBPD DISPATCH — ALL UNITS STANDBY', 'standby');
+  scannerRow('PMPD DISPATCH — ALL UNITS STANDBY', 'standby');
 
   // --- event subscriptions ---
   if (game.events && typeof game.events.on === 'function') {
@@ -1091,7 +1190,7 @@ function init(game) {
     });
     game.events.on('scanner', (data) => {
       if (!data) return;
-      const unit = data.unit || (data.name ?? 'SBPD');
+      const unit = data.unit || (data.name ?? 'PMPD');
       const behavior = data.behavior || 'PATROL';
       const dist = typeof data.dist === 'number' ? Math.round(data.dist) + 'm' : '';
       const kind = /pursuit|ram/i.test(behavior) ? 'hot' : /roadblock|search/i.test(behavior) ? 'warm' : '';

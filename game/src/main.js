@@ -1,8 +1,9 @@
-// SOLARA BAY — boot, game object, input, camera, main loop. Coordinator's spine.
+// PUERTO MIRA — boot, game object, input, camera, main loop. Coordinator's spine.
 // ?shot=chase|title|foot|roam&seed=1 stages a screenshot scene (see shots.js).
 import * as THREE from 'three';
 import { CHARACTERS } from './config.js';
 import world from './world.js';
+import signs from './signs.js';
 import player from './player.js';
 import vehicles from './vehicles.js';
 import police from './police.js';
@@ -69,13 +70,13 @@ const game = {
   respawn,
 };
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.15;
 game.renderer = renderer;
 
 window.addEventListener('resize', () => {
@@ -88,9 +89,9 @@ window.addEventListener('resize', () => {
 function setMode(mode) {
   game.mode = mode;
   emitEvent('mode', { mode });
-  if (mode === 'playing') statusEl.textContent = 'Playing Solara Bay.';
+  if (mode === 'playing') statusEl.textContent = 'Playing Puerto Mira.';
   if (mode === 'paused') statusEl.textContent = 'Paused.';
-  if (mode === 'busted') statusEl.textContent = 'Busted by the SBPD.';
+  if (mode === 'busted') statusEl.textContent = 'Busted by the PMPD.';
   if (mode === 'wasted') statusEl.textContent = 'Wasted.';
 }
 
@@ -200,6 +201,12 @@ let cameraMode = 'chase';
 let camYaw = 0;
 let camPitch = 0.32;
 let camDistance = 9;
+// Cinematic chase (v3): the camera is a spring-damper, not a rigid mount —
+// it trails the target with a soft lag and settles instead of snapping.
+// camRoll is the cornering lean, smoothed toward the car's visual steer.
+let camVel = new THREE.Vector3();
+let camRoll = 0;
+const _camDelta = new THREE.Vector3();
 
 function updateCamera(dt) {
   const cam = game.camera;
@@ -228,19 +235,45 @@ function updateCamera(dt) {
     focus.z + Math.cos(camYaw) * dist,
   );
   const speed = game.currentCar ? Math.abs(game.currentCar.speed) : Math.abs(game.player.speed);
-  // Snap instead of lerping when far off (mode switch, first frame, or any
-  // clock glitch): a slow lerp from the title orbit would leave the camera
+  // Snap instead of springing when far off (mode switch, first frame, or any
+  // clock glitch): a slow chase from the title orbit would leave the camera
   // mid-flight when a screenshot is taken.
-  if (cam.position.distanceTo(target) > 60) cam.position.copy(target);
-  else cam.position.lerp(target, 1 - Math.pow(0.0001, dt));
+  if (cam.position.distanceTo(target) > 60) {
+    cam.position.copy(target);
+    camVel.set(0, 0, 0);
+  } else {
+    // Spring-damper chase: accelerate toward the target, damped just under
+    // critical so the camera trails with a soft lag and settles without
+    // oscillation. Semi-implicit Euler, stable for dt <= MAX_DT (0.05).
+    const k = 42;
+    const c = 2 * Math.sqrt(k) * 0.85;
+    _camDelta.subVectors(target, cam.position);
+    camVel.addScaledVector(_camDelta, k * dt);
+    camVel.multiplyScalar(Math.exp(-c * dt));
+    cam.position.addScaledVector(camVel, dt);
+  }
   cam.lookAt(focus.x, focus.y + 2, focus.z);
-  const wantFov = 62 + Math.min(14, speed * 0.35);
+  // Cornering roll: lean into the turn, proportional to the car's already
+  // smoothed visual steering (max ~1.3 deg). On foot the camera stays level.
+  const steerVis = game.currentCar ? (game.currentCar.steerVisual ?? 0) : 0;
+  const targetRoll = -steerVis * 0.055;
+  camRoll += (targetRoll - camRoll) * Math.min(1, dt * 6);
+  cam.rotateZ(camRoll);
+  // Nitro widens the FOV (+6 deg) on top of the speed widening. The nitro
+  // signal is the same state vehicles.js uses (Shift + nitro car + fuel +
+  // rolling) — read here, never duplicated into new state.
+  const car = game.currentCar;
+  const nitroOn = !!car && !!car.nitro && (car.nitroFuel ?? 0) > 0
+    && (game.input.keys.has('ShiftLeft') || game.input.keys.has('ShiftRight'))
+    && Math.abs(car.speed) > 5;
+  const wantFov = 62 + Math.min(14, speed * 0.35) + (nitroOn ? 6 : 0);
   cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 3);
   cam.updateProjectionMatrix();
 }
 
 // --- boot systems ---
 world.init(game);
+signs.init(game);
 player.init(game);
 vehicles.init(game);
 police.init(game);
@@ -288,8 +321,10 @@ function frame(now) {
     missions.update(dt);
     activities.update(dt);
     world.update(dt);
+    signs.update(dt);
   } else if (game.mode === 'title') {
     world.update(dt);
+    signs.update(dt);
     vehicles.update(dt);
   }
   hud.update(dt);
@@ -304,5 +339,5 @@ function frame(now) {
   }
 }
 
-statusEl.textContent = 'SOLARA BAY. Click to start.';
+statusEl.textContent = 'PUERTO MIRA. Click to start.';
 requestAnimationFrame(frame);
